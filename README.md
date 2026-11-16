@@ -18,7 +18,7 @@ GitHub Pages: https://taras-galper.github.io/EZ_Carpentry/ (enable Settings → 
 
 ## Downloads
 
-Every push builds `casework` for Windows, Linux and macOS: Actions → latest run → Artifacts.
+Every push builds `casework` for Windows and Linux: Actions → latest run → Artifacts. For macOS, start the workflow by hand (Actions → build → Run workflow).
 
 ## Editor
 
