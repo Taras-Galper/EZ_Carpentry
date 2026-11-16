@@ -142,6 +142,27 @@ function addCabinet(type) {
   recompute();
 }
 
+// ---------- left: add palette ----------
+// Small front-elevation icons, 28 x 34 viewBox.
+const ICONS = {
+  Base: '<rect x="3" y="8" width="22" height="22"/><line x1="20" y1="12" x2="20" y2="17"/><rect x="3" y="30" width="22" height="3" class="k"/>',
+  Drawers: '<rect x="3" y="8" width="22" height="22"/><line x1="3" y1="14" x2="25" y2="14"/><line x1="3" y1="22" x2="25" y2="22"/><rect x="3" y="30" width="22" height="3" class="k"/>',
+  Sink: '<rect x="1" y="6" width="26" height="2.5" class="k"/><rect x="3" y="8.5" width="22" height="21.5"/><line x1="14" y1="8.5" x2="14" y2="30"/><path d="M10 6 v-3 h4"/><rect x="3" y="30" width="22" height="3" class="k"/>',
+  Hob: '<rect x="1" y="6" width="26" height="2.5" class="k"/><rect x="3" y="8.5" width="22" height="21.5"/><line x1="3" y1="15" x2="25" y2="15"/><line x1="3" y1="22" x2="25" y2="22"/><line x1="7" y1="4" x2="21" y2="4" class="t"/><rect x="3" y="30" width="22" height="3" class="k"/>',
+  Corner: '<rect x="2" y="8" width="24" height="22"/><rect x="15" y="8" width="11" height="22" class="k"/><line x1="12" y1="12" x2="12" y2="17"/><rect x="2" y="30" width="24" height="3" class="k"/>',
+  Wall: '<rect x="3" y="3" width="22" height="16"/><line x1="20" y1="13" x2="20" y2="17"/><line x1="0" y1="2" x2="28" y2="2" class="t"/>',
+  Tall: '<rect x="7" y="1" width="14" height="30"/><line x1="7" y1="13" x2="21" y2="13"/><rect x="7" y="31" width="14" height="2" class="k"/>',
+};
+function renderPalette() {
+  const el = $("#palette");
+  for (const [type, body] of Object.entries(ICONS)) {
+    const b = h("button", { title: `Add ${type.toLowerCase()} cabinet`, "data-add": type, onclick: () => addCabinet(type) });
+    b.innerHTML = `<svg width="28" height="34" viewBox="0 0 28 34" fill="#fff" stroke="currentColor" stroke-width="1.3"><style>.k{fill:currentColor;opacity:.35;stroke:none}.t{stroke-width:2.2}</style>${body}</svg>`;
+    b.append(type);
+    el.append(b);
+  }
+}
+
 // ---------- left: list ----------
 function renderList() {
   const ul = $("#list"); ul.replaceChildren();
@@ -176,11 +197,13 @@ function field(label, obj, key, type = "number", opts) {
 
 function renderProps() {
   const el = $("#props"); el.replaceChildren();
+  // Conditional fields pass null; leave them out.
+  const put = (...kids) => el.append(...kids.flat().filter((k) => k != null && k !== false));
   const c = project.cabinets.find((c) => c.id === selected);
   const mats = project.materials.map((m) => [m.id, m.name]);
   if (!c) {
     const s = project.settings;
-    el.append(
+    put(
       h("h3", {}, "Project"),
       field("Name", project, "name", "text"),
       h("h3", {}, "Machining"),
@@ -205,7 +228,7 @@ function renderProps() {
     );
     return;
   }
-  el.append(
+  put(
     h("div", { class: "row" },
       h("h3", {}, c.id),
       h("button", { onclick: () => {
@@ -569,7 +592,7 @@ async function main() {
   project = migrate(loadLocal() || JSON.parse(cw.sample_project()));
   selected = null;
 
-  $("#add").addEventListener("change", (e) => { if (e.target.value) addCabinet(e.target.value); e.target.value = ""; });
+  renderPalette();
   $("#projbtn").onclick = () => { selected = null; recompute(); };
   $("#new").onclick = () => { project = JSON.parse(cw.sample_project()); project.cabinets = []; project.name = "Untitled"; selected = null; recompute(); };
   $("#sample").onclick = () => { project = JSON.parse(cw.sample_project()); selected = null; framed = false; recompute(); };
