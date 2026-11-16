@@ -255,7 +255,7 @@ pub fn files(project: &Project, report: &Report) -> Vec<(String, Vec<u8>)> {
     for p in &b.parts {
         files.push((format!("parts/{}.dxf", safe(&p.id)), dxf::part_dxf(p).into_bytes()));
     }
-    for c in &project.cabinets {
+    for c in project.cabinets.iter().filter(|c| c.kind.is_carcass()) {
         files.push((format!("drawings/{}.svg", safe(&c.id)), drawing::cabinet_svg(project, b, c).into_bytes()));
     }
     write_sheets(project, &report.nesting, &b.parts, &mut files);

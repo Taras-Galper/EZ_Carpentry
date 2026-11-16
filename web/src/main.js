@@ -125,12 +125,15 @@ const PRESETS = {
   Wall: () => ({ kind: "wall", name: "Wall", width: 600, height: 720, depth: 320, elevation: 1450, toe_kick_height: 0, doors: 1, drawers: [], shelves: 2 }),
   Sink: () => ({ kind: "base", name: "Sink base", width: 800, height: 870, depth: 560, toe_kick_height: 100, toe_kick_depth: 60, doors: 2, drawers: [], shelves: 0, cutout: "sink" }),
   Hob: () => ({ kind: "base", name: "Hob base", width: 600, height: 870, depth: 560, toe_kick_height: 100, toe_kick_depth: 60, doors: 0, drawers: [180, 300, 290], shelves: 0, cutout: "hob" }),
+  Dishwasher: () => ({ kind: "dishwasher", name: "Dishwasher", width: 600, height: 870, depth: 560, toe_kick_height: 100, toe_kick_depth: 60, doors: 0, drawers: [], shelves: 0 }),
+  Fridge: () => ({ kind: "appliance", name: "Fridge", width: 600, height: 2000, depth: 650, toe_kick_height: 0, doors: 0, drawers: [], shelves: 0 }),
+  Filler: () => ({ kind: "filler", name: "Filler", width: 50, height: 870, depth: 560, toe_kick_height: 100, toe_kick_depth: 60, doors: 0, drawers: [], shelves: 0 }),
   Corner: () => ({ kind: "base", name: "Blind corner", width: 1200, height: 870, depth: 560, toe_kick_height: 100, toe_kick_depth: 60, doors: 1, drawers: [], shelves: 1, blind_side: "right", blind_width: 600 }),
   Tall: () => ({ kind: "tall", name: "Tall", width: 600, height: 2200, depth: 580, toe_kick_height: 100, toe_kick_depth: 60, doors: 2, drawers: [], shelves: 5 }),
 };
 function addCabinet(type) {
   const p = PRESETS[type]();
-  const prefix = { base: "b", wall: "w", tall: "t" }[p.kind];
+  const prefix = { base: "b", wall: "w", tall: "t", dishwasher: "d", appliance: "a", filler: "f" }[p.kind];
   // Append to the back-wall run of the same tier; match the project's front style.
   const same = project.cabinets.filter((c) => !c.rotation && (c.kind === "wall") === (p.kind === "wall"));
   const x = same.reduce((m, c) => Math.max(m, c.x + c.width), 0);
@@ -141,6 +144,8 @@ function addCabinet(type) {
     toe_kick_depth: 60, ...p,
   };
   project.cabinets.push(c);
+  // Fill every field the preset leaves out with the Rust defaults.
+  project = JSON.parse(cw.normalize(JSON.stringify(project)));
   selected = c.id;
   recompute();
 }
@@ -155,6 +160,9 @@ const ICONS = {
   Corner: '<rect x="2" y="8" width="24" height="22"/><rect x="15" y="8" width="11" height="22" class="k"/><line x1="12" y1="12" x2="12" y2="17"/><rect x="2" y="30" width="24" height="3" class="k"/>',
   Wall: '<rect x="3" y="3" width="22" height="16"/><line x1="20" y1="13" x2="20" y2="17"/><line x1="0" y1="2" x2="28" y2="2" class="t"/>',
   Tall: '<rect x="7" y="1" width="14" height="30"/><line x1="7" y1="13" x2="21" y2="13"/><rect x="7" y="31" width="14" height="2" class="k"/>',
+  Dishwasher: '<rect x="3" y="8" width="22" height="22"/><line x1="10" y1="11.5" x2="18" y2="11.5" class="t"/><rect x="3" y="30" width="22" height="3" class="k"/>',
+  Fridge: '<rect x="6" y="3" width="16" height="30" stroke-dasharray="2.2 1.6"/><line x1="9" y1="9" x2="9" y2="14"/><line x1="9" y1="18" x2="9" y2="24"/>',
+  Filler: '<rect x="11" y="8" width="6" height="22"/><rect x="11" y="30" width="6" height="3" class="k"/>',
 };
 function renderPalette() {
   const el = $("#palette");
@@ -176,6 +184,7 @@ function renderList() {
 }
 
 // ---------- right: properties ----------
+const KINDS = [["base", "Base"], ["wall", "Wall"], ["tall", "Tall"], ["dishwasher", "Dishwasher"], ["appliance", "Appliance space"], ["filler", "Filler"]];
 function field(label, obj, key, type = "number", opts) {
   let input;
   const commit = () => {
@@ -231,6 +240,9 @@ function renderProps() {
     );
     return;
   }
+  const carcass = ["base", "wall", "tall"].includes(c.kind);
+  const blind = c.blind_side && c.blind_side !== "none";
+  const cut = c.cutout && c.cutout !== "none";
   put(
     h("div", { class: "row" },
       h("h3", {}, c.id),
@@ -243,36 +255,42 @@ function renderProps() {
         project.cabinets = project.cabinets.filter((x) => x !== c); selected = null; recompute();
       } }, "Delete")),
     field("Name", c, "name", "text"),
-    field("Type", c, "kind", "select", [["base", "Base"], ["wall", "Wall"], ["tall", "Tall"]]),
+    field("Type", c, "kind", "select", KINDS),
     h("div", { class: "grid3" }, field("Width", c, "width"), field("Height", c, "height"), field("Depth", c, "depth")),
     h("div", { class: "grid2" },
       field("X", c, "x"), field("Z", c, "z"),
       field("Elevation", c, "elevation"), field("Rotation°", c, "rotation"),
-      field("Toe kick H", c, "toe_kick_height"), field("Toe kick D", c, "toe_kick_depth")),
-    h("h3", {}, "Interior"),
-    h("div", { class: "grid2" },
-      field("Doors", c, "doors", "select", [[0, "None"], [1, "1"], [2, "2"]]),
-      field("Hinge", c, "hinge_side", "select", [["left", "Left"], ["right", "Right"]]),
+      c.kind !== "appliance" && c.kind !== "wall" ? [field("Toe kick H", c, "toe_kick_height"), field("Toe kick D", c, "toe_kick_depth")] : null),
+    carcass ? [
+      h("h3", {}, "Interior"),
+      h("div", { class: "grid2" },
+        field("Doors", c, "doors", "select", [[0, "None"], [1, "1"], [2, "2"]]),
+        field("Hinge", c, "hinge_side", "select", [["left", "Left"], ["right", "Right"]]),
+        field("Front style", c, "door_style", "select", [["slab", "Slab"], ["shaker", "Shaker"]]),
+        field("Blind corner", c, "blind_side", "select", [["none", "None"], ["left", "Left"], ["right", "Right"]]),
+        blind ? [field("Blind width", c, "blind_width"), h("span")] : null,
+        field("Shelves", c, "shelves", "int"),
+        field("Handles", c, "handles", "check"),
+        field("End panel L", c, "end_left", "check"),
+        field("End panel R", c, "end_right", "check")),
+      field("Drawers (front heights, top first)", c, "drawers", "list"),
+    ] : null,
+    c.kind === "dishwasher" ? h("div", { class: "grid2" },
       field("Front style", c, "door_style", "select", [["slab", "Slab"], ["shaker", "Shaker"]]),
-      field("Blind corner", c, "blind_side", "select", [["none", "None"], ["left", "Left"], ["right", "Right"]]),
-      c.blind_side && c.blind_side !== "none" ? field("Blind width", c, "blind_width") : null,
-      c.blind_side && c.blind_side !== "none" ? h("span") : null,
-      field("Shelves", c, "shelves", "int"),
-      field("Handles", c, "handles", "check")),
-    field("Drawers (front heights, top first)", c, "drawers", "list"),
-    c.kind === "base" ? h("h3", {}, "Worktop cut-out") : null,
-    c.kind === "base" ? h("div", { class: "grid2" },
-      field("Type", c, "cutout", "select", [["none", "None"], ["sink", "Sink"], ["hob", "Hob"]]),
-      c.cutout && c.cutout !== "none" ? field("Front setback", c, "cutout_setback") : h("span"),
-      ...(c.cutout && c.cutout !== "none" ? [
-        field("Width (0 = std)", c, "cutout_width"), field("Depth (0 = std)", c, "cutout_depth"),
-        field("Corner radius", c, "cutout_radius")] : [])) : null,
-    h("h3", {}, "Materials"),
-    field("Carcass", c, "carcass_material", "select", mats),
-    field("Back", c, "back_material", "select", mats),
-    field("Fronts", c, "front_material", "select", mats),
-    field("Drawer box", c, "drawer_material", "select", mats),
-    c.door_style === "shaker" ? field("Shaker panel", c, "panel_material", "select", mats) : null,
+      field("Handles", c, "handles", "check")) : null,
+    c.kind === "base" ? [
+      h("h3", {}, "Worktop cut-out"),
+      h("div", { class: "grid2" },
+        field("Type", c, "cutout", "select", [["none", "None"], ["sink", "Sink"], ["hob", "Hob"]]),
+        cut ? field("Front setback", c, "cutout_setback") : h("span"),
+        cut ? [field("Width (0 = std)", c, "cutout_width"), field("Depth (0 = std)", c, "cutout_depth"),
+          field("Corner radius", c, "cutout_radius")] : null),
+    ] : null,
+    c.kind !== "appliance" ? h("h3", {}, "Materials") : null,
+    carcass ? [field("Carcass", c, "carcass_material", "select", mats), field("Back", c, "back_material", "select", mats)] : null,
+    c.kind !== "appliance" ? field("Fronts", c, "front_material", "select", mats) : null,
+    carcass ? field("Drawer box", c, "drawer_material", "select", mats) : null,
+    c.kind !== "appliance" && c.kind !== "filler" && c.door_style === "shaker" ? field("Shaker panel", c, "panel_material", "select", mats) : null,
   );
 }
 
@@ -359,6 +377,7 @@ function renderDrawings() {
   const json = JSON.stringify(project);
   project.cabinets.forEach((c, i) => {
     if (selected && c.id !== selected) return;
+    if (!["base", "wall", "tall"].includes(c.kind)) return;
     const svg = cw.export_one(json, "drawing", i);
     v.append(h("figure", {},
       h("img", { src: "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg) }),
@@ -472,6 +491,7 @@ function renderHardware() {
 
 // ---------- 3D ----------
 let renderer, scene, camera, controls, root, framed = false;
+let persp, ortho, view = "3d"; // "3d" | "plan" | "front"
 const groups = new Map();
 let drag = null;
 const matCache = new Map();
@@ -482,7 +502,8 @@ function setup3d() {
   host.append(renderer.domElement);
   scene = new THREE.Scene();
   scene.background = new THREE.Color("#f3f1ec");
-  camera = new THREE.PerspectiveCamera(40, 1, 10, 50000);
+  persp = camera = new THREE.PerspectiveCamera(40, 1, 10, 50000);
+  ortho = new THREE.OrthographicCamera(-1, 1, 1, -1, -100000, 100000);
   controls = new OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true;
   scene.add(new THREE.HemisphereLight(0xffffff, 0x8a8478, 1.6));
@@ -492,13 +513,15 @@ function setup3d() {
   new ResizeObserver(resize).observe(host);
   const ray = new THREE.Raycaster(), ptr = new THREE.Vector2();
   const floor = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+  const wallPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
   const el = renderer.domElement;
   const aim = (e) => {
     const r = el.getBoundingClientRect();
     ptr.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
     ray.setFromCamera(ptr, camera);
   };
-  const floorPoint = () => ray.ray.intersectPlane(floor, new THREE.Vector3());
+  // In the front view the floor is edge-on, so drag along a vertical plane (x only).
+  const floorPoint = () => ray.ray.intersectPlane(view === "front" ? wallPlane : floor, new THREE.Vector3());
   el.addEventListener("pointerdown", (e) => {
     if (e.button !== 0) return;
     aim(e);
@@ -513,7 +536,8 @@ function setup3d() {
     if (!drag.moved) { drag.moved = true; controls.enabled = false; el.setPointerCapture(e.pointerId); }
     aim(e);
     const p = floorPoint(); if (!p) return;
-    const [x, z] = snap(drag.c, p.x + drag.off[0], p.z + drag.off[1]);
+    let [x, z] = snap(drag.c, p.x + drag.off[0], view === "front" ? drag.c.z : p.z + drag.off[1]);
+    if (view === "front") z = drag.c.z;
     drag.x = x; drag.z = z;
     groups.get(drag.c.id)?.position.set(x, drag.c.elevation, z);
     $("#coords").textContent = `${drag.c.id}  x ${x}  z ${z}`;
@@ -573,7 +597,11 @@ function rotateCabinet(c) {
 function resize() {
   const host = $("#v-3d"), w = host.clientWidth, hh = host.clientHeight;
   if (!w || !hh) return;
-  renderer.setSize(w, hh); camera.aspect = w / hh; camera.updateProjectionMatrix();
+  renderer.setSize(w, hh);
+  persp.aspect = w / hh; persp.updateProjectionMatrix();
+  const half = ortho.userData.half || 3000, a = w / hh;
+  Object.assign(ortho, { left: -half * a, right: half * a, top: half, bottom: -half });
+  ortho.updateProjectionMatrix();
 }
 function mat(color, sel) {
   const k = color + sel;
@@ -584,6 +612,8 @@ function mat(color, sel) {
   }
   return matCache.get(k);
 }
+const applianceMat = new THREE.MeshStandardMaterial({ color: 0xb9bcc0, roughness: 0.6, metalness: 0.3, transparent: true, opacity: 0.55 });
+const applianceSel = new THREE.MeshStandardMaterial({ color: 0x8fa8d8, roughness: 0.6, transparent: true, opacity: 0.6 });
 const wallMat = new THREE.MeshStandardMaterial({ color: 0xdedad2, roughness: 1, transparent: true, opacity: 0.45, depthWrite: false });
 const hobMat = new THREE.MeshStandardMaterial({ color: 0x151617, roughness: 0.25, metalness: 0.2 });
 const steelMat = new THREE.MeshStandardMaterial({ color: 0xc9ccd0, roughness: 0.35, metalness: 0.7 });
@@ -608,6 +638,15 @@ function updateScene() {
       m.scale.set(sx, H, sz); m.position.set(x + sx / 2, H / 2, z + sz / 2);
       root.add(m);
     }
+  }
+  for (const ph of report.build.placeholders || []) {
+    const g = groups.get(ph.cabinet); if (!g) continue;
+    const [x, y, z] = ph.box3d.pos, [sx, sy, sz] = ph.box3d.size;
+    const m = new THREE.Mesh(box, ph.cabinet === selected ? applianceSel : applianceMat);
+    m.scale.set(sx, sy, sz); m.position.set(x + sx / 2, y + sy / 2, z + sz / 2);
+    m.userData.cab = ph.cabinet;
+    const l = new THREE.LineSegments(edges, edgeMat); l.scale.copy(m.scale); l.position.copy(m.position);
+    g.add(m, l);
   }
   for (const p of report.build.parts) {
     if (!showFronts && p.role === "front") continue;
@@ -639,10 +678,32 @@ function updateScene() {
 function frame() {
   const b = new THREE.Box3().setFromObject(root);
   if (b.isEmpty()) return;
-  const c = b.getCenter(new THREE.Vector3()), s = b.getSize(new THREE.Vector3()).length();
+  const c = b.getCenter(new THREE.Vector3()), size = b.getSize(new THREE.Vector3()), s = size.length();
   controls.target.copy(c);
-  camera.position.set(c.x + s * 0.35, c.y + s * 0.35, c.z + s * 1.05);
+  if (view === "3d") {
+    camera.up.set(0, 1, 0);
+    camera.position.set(c.x + s * 0.35, c.y + s * 0.35, c.z + s * 1.05);
+  } else {
+    const host = $("#v-3d"), aspect = host.clientWidth / Math.max(1, host.clientHeight);
+    const [sw, sh] = view === "plan" ? [size.x, size.z] : [size.x, size.y];
+    ortho.userData.half = (Math.max(sh, sw / aspect) / 2) * 1.12;
+    ortho.zoom = 1;
+    if (view === "plan") { camera.up.set(0, 0, -1); camera.position.set(c.x, c.y + 20000, c.z); }
+    else { camera.up.set(0, 1, 0); camera.position.set(c.x, c.y, c.z + 20000); }
+    camera.lookAt(c);
+    resize();
+  }
   camera.updateProjectionMatrix();
+}
+function setView(v) {
+  view = v;
+  camera = v === "3d" ? persp : ortho;
+  controls.object = camera;
+  controls.enableRotate = v === "3d";
+  controls.mouseButtons.LEFT = v === "3d" ? THREE.MOUSE.ROTATE : THREE.MOUSE.PAN;
+  $$("#views button").forEach((b) => b.classList.toggle("on", b.dataset.view === v));
+  frame();
+  controls.update();
 }
 
 // ---------- boot ----------
@@ -671,6 +732,7 @@ async function main() {
   $$("#tabs button").forEach((b) => (b.onclick = () => { tab = b.dataset.tab; renderTab(); }));
   $("#fronts").onchange = (e) => { showFronts = e.target.checked; updateScene(); };
   $("#fit").onclick = frame;
+  $$("#views button").forEach((b) => (b.onclick = () => setView(b.dataset.view)));
   $("#undo").onclick = undo;
   $("#redo").onclick = redo;
   addEventListener("keydown", (e) => {

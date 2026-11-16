@@ -167,6 +167,30 @@ pub enum CabinetKind {
     Base,
     Wall,
     Tall,
+    /// Front-material strip closing a gap (plus toe kick when on the floor).
+    Filler,
+    /// Integrated dishwasher: decor panel and plinth only.
+    Dishwasher,
+    /// Space held for a fridge, freestanding oven, etc. No parts.
+    Appliance,
+}
+
+impl CabinetKind {
+    /// Built as a box with sides, top, bottom and back.
+    pub fn is_carcass(self) -> bool {
+        matches!(self, CabinetKind::Base | CabinetKind::Wall | CabinetKind::Tall)
+    }
+}
+
+impl Cabinet {
+    /// Sits on the floor under the worktop (joins worktop runs).
+    pub fn under_worktop(&self) -> bool {
+        match self.kind {
+            CabinetKind::Base | CabinetKind::Dishwasher => true,
+            CabinetKind::Filler | CabinetKind::Appliance => self.elevation == 0.0 && self.height < 1000.0,
+            _ => false,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -240,6 +264,9 @@ pub struct Cabinet {
     /// perpendicular run covers; the door fills the rest.
     pub blind_side: BlindSide,
     pub blind_width: f64,
+    /// Finished end panels (front material) outside the carcass sides.
+    pub end_left: bool,
+    pub end_right: bool,
     /// Worktop cut-out centred over this cabinet. Sizes of 0 use the
     /// kind's default; setback is from the worktop front edge.
     pub cutout: CutoutKind,
@@ -279,6 +306,8 @@ impl Default for Cabinet {
             door_style: DoorStyle::Slab,
             blind_side: BlindSide::None,
             blind_width: 600.0,
+            end_left: false,
+            end_right: false,
             cutout: CutoutKind::None,
             cutout_width: 0.0,
             cutout_depth: 0.0,
@@ -399,7 +428,7 @@ pub fn sample_kitchen() -> Project {
             shelves: 5,
             ..Cabinet::default()
         },
-        Cabinet { doors: 0, drawers: vec![180.0, 300.0, 290.0], shelves: 0, ..base("b1", "Drawer base", 600.0) },
+        Cabinet { kind: CabinetKind::Dishwasher, doors: 0, shelves: 0, ..base("d1", "Dishwasher", 600.0) },
         Cabinet { doors: 2, shelves: 0, cutout: CutoutKind::Sink, ..base("b2", "Sink base", 800.0) },
         Cabinet {
             blind_side: BlindSide::Right,
@@ -424,7 +453,7 @@ pub fn sample_kitchen() -> Project {
             cutout: CutoutKind::Hob,
             ..base("b5", "Hob base", 600.0)
         },
-        Cabinet { drawers: vec![160.0], hinge_side: HingeSide::Right, ..base("b6", "Base", 450.0) },
+        Cabinet { drawers: vec![160.0], hinge_side: HingeSide::Right, end_right: true, ..base("b6", "Base", 450.0) },
     ] {
         cabs.push(Cabinet { x: room_w, z, rotation: -90.0, ..c });
         z += cabs.last().map(|c| c.width).unwrap_or(0.0);

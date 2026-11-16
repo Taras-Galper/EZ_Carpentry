@@ -22,6 +22,7 @@ Every push builds `casework` for Windows, Linux and macOS: Actions → latest ru
 
 ## Editor
 
+3D / Plan / Front switch the camera; Plan and Front are flat (orthographic) for layout, left-drag on empty space pans. In Front, dragging moves a cabinet sideways only.
 Drag a cabinet in 3D to move it (10 mm grid; its footprint snaps to walls and to the edges of other cabinets, including perpendicular runs). R rotates the selected cabinet 90° in place. Ctrl+Z / Ctrl+Y undo and redo every edit.
 Room width/depth/height (Project) draws the back and side walls; back wall at z = 0, side walls at x = 0 and x = width.
 The project is kept in the browser between visits; Save writes `project.json`.
@@ -87,6 +88,10 @@ Frameless / System 32, applied back, full-overlay fronts.
 - Shelf-pin rows at the system line from front and back, 32 mm pitch; shelves snap to the nearest row.
 - Worktop: one per straight run of touching base cabinets along their own axis (any rotation), deepest cabinet + overhang. At an L corner the later run is trimmed to butt against the first. Set thickness 0 to turn off.
 - Worktop cut-outs: set Sink or Hob on a base cabinet; the cut-out is centred over it, set back from the worktop front. Sizes of 0 use 760 × 440 R10 (sink) and 560 × 490 R5 (hob). A warning appears when a cut-out comes within 50 mm of a worktop edge or is wider than the cabinet interior.
+- Dishwasher: integrated decor panel (slab or Shaker) and toe kick; the machine is shown in 3D but not cut. Joins worktop runs.
+- Appliance space (fridge, freestanding oven): holds the space, cuts nothing, not charged. Under-worktop height (< 1000 mm on the floor) joins worktop runs; taller ones end them.
+- Filler: front-material strip plus toe kick; joins worktop runs when under-worktop height.
+- End panels: finished side in front material outside the carcass, deep enough to cover the door edge, full height.
 - Blind corner: the blind side of the front is a fixed panel (blind width) that the return leg covers; one door fills the rest, hinged away from the blind side. Drawers are not built in blind corners.
 - Shaker fronts: two full-height stiles, two rails with tenons (= groove depth), and a panel from the cabinet's panel material. Bores go to whichever piece holds them; fronts smaller than 2 × frame + 60 stay slab.
 - Nesting: MaxRects best-short-side-fit with kerf and trim; grained materials keep grain along the sheet length.

@@ -144,8 +144,11 @@ pub fn quote(project: &Project, report: &Report) -> Quote {
     // Labour.
     let sheets = report.nesting.sheets.len() as f64;
     let cnc_h = sheets * pr.cnc_minutes_per_sheet / 60.0;
-    let asm_h = n_cab as f64 * pr.assembly_hours;
-    let inst_h = n_cab as f64 * pr.install_hours;
+    // Assembly for real cabinets; installation for everything except empty appliance spaces.
+    let assembles = |c: &crate::model::Cabinet| c.kind.is_carcass();
+    let installs = |c: &crate::model::Cabinet| c.kind != CabinetKind::Appliance;
+    let asm_h = project.cabinets.iter().filter(|c| assembles(c)).count() as f64 * pr.assembly_hours;
+    let inst_h = project.cabinets.iter().filter(|c| installs(c)).count() as f64 * pr.install_hours;
     let mut labor = 0.0;
     for (item, hrs) in [("CNC / cutting", cnc_h), ("Assembly", asm_h), ("Installation", inst_h)] {
         if hrs <= 0.0 {
@@ -164,8 +167,9 @@ pub fn quote(project: &Project, report: &Report) -> Quote {
     for (i, p) in b.parts.iter().enumerate() {
         part_cost[i] += cnc_h * pr.labor_rate * p.w * p.h / total_area;
     }
-    for c in cab_cost.iter_mut() {
-        *c += (pr.assembly_hours + pr.install_hours) * pr.labor_rate;
+    for (c, cab) in cab_cost.iter_mut().zip(&project.cabinets) {
+        let hrs = if assembles(cab) { pr.assembly_hours } else { 0.0 } + if installs(cab) { pr.install_hours } else { 0.0 };
+        *c += hrs * pr.labor_rate;
     }
     for (i, p) in b.parts.iter().enumerate() {
         if p.role != Role::Worktop {
@@ -188,6 +192,7 @@ pub fn quote(project: &Project, report: &Report) -> Quote {
             cost: money(cost),
             price: money(cost * k),
         })
+        .filter(|it| it.cost > 0.0)
         .collect();
     for (i, p) in b.parts.iter().enumerate().filter(|(_, p)| p.role == Role::Worktop) {
         let mut d = format!("{}, {:.0} × {:.0}", project.material(&p.material).name, p.w, p.h);
@@ -228,12 +233,20 @@ pub fn quote(project: &Project, report: &Report) -> Quote {
 /// One-line customer description of a cabinet.
 pub fn describe(project: &Project, report: &Report, id: &str) -> String {
     let Some(c) = project.cabinets.iter().find(|c| c.id == id) else { return String::new() };
+    match c.kind {
+        CabinetKind::Filler => return format!("Filler {:.0}×{:.0}, {}", c.width, c.height, project.material(&c.front_material).name),
+        CabinetKind::Dishwasher => {
+            return format!("Integrated dishwasher panel {:.0} wide, {}", c.width, project.material(&c.front_material).name)
+        }
+        CabinetKind::Appliance => return format!("Appliance space {:.0}×{:.0}×{:.0}", c.width, c.height, c.depth),
+        _ => {}
+    }
     let kind = match (c.kind, c.blind_side) {
         (CabinetKind::Base, crate::model::BlindSide::None) => "Base cabinet",
         (CabinetKind::Base, _) => "Blind corner base cabinet",
         (CabinetKind::Wall, crate::model::BlindSide::None) => "Wall cabinet",
         (CabinetKind::Wall, _) => "Blind corner wall cabinet",
-        (CabinetKind::Tall, _) => "Tall cabinet",
+        _ => "Tall cabinet",
     };
     let mut bits = vec![format!("{kind} {:.0}×{:.0}×{:.0}", c.width, c.height, c.depth)];
     let fronts = report.build.parts.iter().filter(|p| p.cabinet == c.id && p.role == Role::Front);

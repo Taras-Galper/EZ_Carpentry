@@ -150,10 +150,19 @@ pub struct Hardware {
     pub qty: u32,
 }
 
+/// A box shown in 3D that is not a part to cut (appliance bodies).
+#[derive(Debug, Clone, Serialize)]
+pub struct Placeholder {
+    pub cabinet: String,
+    pub label: String,
+    pub box3d: Box3,
+}
+
 #[derive(Debug, Default, Clone, Serialize)]
 pub struct Build {
     pub parts: Vec<Part>,
     pub hardware: Vec<Hardware>,
+    pub placeholders: Vec<Placeholder>,
     pub warnings: Vec<String>,
 }
 
@@ -263,6 +272,106 @@ pub fn build(project: &Project) -> Build {
     out
 }
 
+/// Replace slab fronts from `start` on with five-piece Shaker fronts
+/// when the cabinet asks for them and the front is big enough.
+fn shakerize(project: &Project, cab: &Cabinet, out: &mut Build, start: usize) {
+    if cab.door_style != DoorStyle::Shaker {
+        return;
+    }
+    let s = &project.settings;
+    let pm = project.material(&cab.panel_material);
+    let f = s.shaker_frame;
+    let mut i = start;
+    while i < out.parts.len() {
+        let p = &out.parts[i];
+        if p.role == Role::Front && p.w.min(p.h) >= 2.0 * f + 60.0 {
+            let p = out.parts.remove(i);
+            let pieces = shaker_pieces(p, f, s.shaker_groove, &pm);
+            let n = pieces.len();
+            for (k, q) in pieces.into_iter().enumerate() {
+                out.parts.insert(i + k, q);
+            }
+            i += n;
+        } else {
+            i += 1;
+        }
+    }
+}
+
+/// Fillers, dishwasher panels and appliance spaces: no carcass.
+fn build_special(project: &Project, cab: &Cabinet, out: &mut Build) {
+    let s = &project.settings;
+    let cm = project.material(&cab.carcass_material);
+    let fm = project.material(&cab.front_material);
+    let start = out.parts.len();
+    let mut cx = Ctx { cab, out };
+    let (w, h, d) = (cab.width, cab.height, cab.depth);
+    let (t, ft, g) = (cm.thickness, fm.thickness, s.front_gap);
+    let toe = if cab.elevation > 0.0 { 0.0 } else { cab.toe_kick_height.max(0.0).min(h * 0.5) };
+    let tkd = cab.toe_kick_depth.clamp(0.0, d * 0.5);
+    if w < 10.0 || h < 50.0 {
+        cx.warn("too small to build");
+        return;
+    }
+    let toe_board = |cx: &mut Ctx| {
+        if toe > 0.0 && cab.kind != CabinetKind::Appliance {
+            cx.part("toe", "Toe kick", Role::Carcass, &cm, w, toe, false, [false, false, true, false],
+                Box3 { pos: [0.0, 0.0, d - tkd - t], size: [w, toe, t] });
+        }
+    };
+    match cab.kind {
+        CabinetKind::Filler => {
+            cx.part("filler", "Filler", Role::Front, &fm, w, h - toe, true, [true; 4],
+                Box3 { pos: [0.0, toe, d], size: [w, h - toe, ft] });
+            toe_board(&mut cx);
+        }
+        CabinetKind::Dishwasher => {
+            let (fw, fh) = (w - g, h - toe - g);
+            let idx = cx.part("panel", "Dishwasher panel", Role::Front, &fm, fw, fh, false, [true; 4],
+                Box3 { pos: [g / 2.0, toe + g / 2.0, d], size: [fw, fh, ft] });
+            if cab.handles {
+                let sp = s.handle_spacing;
+                let y = fh - 60.0;
+                let p = &mut cx.out.parts[idx];
+                p.holes.push(Hole { x: fw / 2.0 - sp / 2.0, y, dia: 5.0, depth: 0.0 });
+                p.holes.push(Hole { x: fw / 2.0 + sp / 2.0, y, dia: 5.0, depth: 0.0 });
+                cx.hw(format!("Handle {}mm", sp), 1);
+            }
+            cx.hw("Dishwasher panel fixing kit", 1);
+            toe_board(&mut cx);
+            cx.out.placeholders.push(Placeholder {
+                cabinet: cab.id.clone(),
+                label: "Dishwasher".into(),
+                box3d: Box3 { pos: [10.0, toe, 0.0], size: [w - 20.0, h - toe - 5.0, d - 5.0] },
+            });
+            shakerize(project, cab, cx.out, start);
+        }
+        CabinetKind::Appliance => {
+            cx.out.placeholders.push(Placeholder {
+                cabinet: cab.id.clone(),
+                label: cab.name.clone(),
+                box3d: Box3 { pos: [5.0, 0.0, 0.0], size: [w - 10.0, h, d] },
+            });
+        }
+        _ => {}
+    }
+}
+
+/// Finished end panels outside the carcass, covering the door edge.
+fn end_panels(project: &Project, cab: &Cabinet, out: &mut Build) {
+    let fm = project.material(&cab.front_material);
+    let ft = fm.thickness;
+    let (w, h, d) = (cab.width, cab.height, cab.depth);
+    let mut cx = Ctx { cab, out };
+    // Drawn like a left side: x from the front, y up; front and top banded.
+    for (on, key, name, x) in [(cab.end_left, "end-l", "End panel L", -ft), (cab.end_right, "end-r", "End panel R", w)] {
+        if on {
+            cx.part(key, name, Role::Front, &fm, d + ft, h, true, [false, false, true, true],
+                Box3 { pos: [x, 0.0, 0.0], size: [ft, h, d + ft] });
+        }
+    }
+}
+
 /// Split a slab front into a five-piece Shaker door. Holes go to the
 /// piece that contains their centre, in that piece's own frame.
 fn shaker_pieces(p: Part, f: f64, g: f64, pm: &Material) -> Vec<Part> {
@@ -347,7 +456,7 @@ fn build_worktops(project: &Project, out: &mut Build) {
     let mut bases: Vec<(&Cabinet, f64, f64)> = project
         .cabinets
         .iter()
-        .filter(|c| c.kind == CabinetKind::Base)
+        .filter(|c| c.under_worktop())
         .map(|c| {
             let (sn, cs) = c.rotation.to_radians().sin_cos();
             (c, c.x * cs - c.z * sn, r2(c.x * sn + c.z * cs))
@@ -490,6 +599,15 @@ fn build_worktops(project: &Project, out: &mut Build) {
 }
 
 fn build_cabinet(project: &Project, cab: &Cabinet, out: &mut Build) {
+    if !cab.kind.is_carcass() {
+        build_special(project, cab, out);
+        return;
+    }
+    build_carcass(project, cab, out);
+    end_panels(project, cab, out);
+}
+
+fn build_carcass(project: &Project, cab: &Cabinet, out: &mut Build) {
     let s = &project.settings;
     let cm = project.material(&cab.carcass_material);
     let bm = project.material(&cab.back_material);
@@ -795,7 +913,7 @@ fn build_cabinet(project: &Project, cab: &Cabinet, out: &mut Build) {
                     let yc = match cab.kind {
                         CabinetKind::Base => fh - 60.0 - sp / 2.0,
                         CabinetKind::Wall => 60.0 + sp / 2.0,
-                        CabinetKind::Tall => (1000.0 - zone_lo).clamp(sp, fh - sp),
+                        _ => (1000.0 - zone_lo).clamp(sp, fh - sp),
                     };
                     p.holes.push(Hole { x: handle_x, y: yc - sp / 2.0, dia: 5.0, depth: 0.0 });
                     p.holes.push(Hole { x: handle_x, y: yc + sp / 2.0, dia: 5.0, depth: 0.0 });
@@ -855,25 +973,7 @@ fn build_cabinet(project: &Project, cab: &Cabinet, out: &mut Build) {
     }
 
     // ---------- shaker fronts ----------
-    if cab.door_style == DoorStyle::Shaker {
-        let pm = project.material(&cab.panel_material);
-        let f = s.shaker_frame;
-        let mut i = start;
-        while i < cx.out.parts.len() {
-            let p = &cx.out.parts[i];
-            if p.role == Role::Front && p.w.min(p.h) >= 2.0 * f + 60.0 {
-                let p = cx.out.parts.remove(i);
-                let pieces = shaker_pieces(p, f, s.shaker_groove, &pm);
-                let n = pieces.len();
-                for (k, q) in pieces.into_iter().enumerate() {
-                    cx.out.parts.insert(i + k, q);
-                }
-                i += n;
-            } else {
-                i += 1;
-            }
-        }
-    }
+    shakerize(project, cab, cx.out, start);
 
     // ---------- sides (added last so all holes are known) ----------
     for (key, name, holes, x) in [

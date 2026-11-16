@@ -173,7 +173,7 @@ mod tests {
     fn worktop_cutouts_sit_over_their_cabinets() {
         let p = sample_kitchen();
         let r = compute(&p);
-        let back = r.build.parts.iter().find(|q| q.id == "b1-worktop").unwrap();
+        let back = r.build.parts.iter().find(|q| q.id == "d1-worktop").unwrap();
         let leg = r.build.parts.iter().find(|q| q.id == "b4-worktop").unwrap();
         assert_eq!(back.cutouts.len(), 1);
         assert_eq!(leg.cutouts.len(), 1);
@@ -215,9 +215,13 @@ mod tests {
         let k = 1.0 + p.pricing.markup_pct / 100.0;
         assert!((q.net - q.cost * k).abs() < 0.01 * q.items.len() as f64 + 0.5);
         assert_eq!(q.items.iter().filter(|i| i.name == "Worktop").count(), 2);
-        // identical drawer bases cost the same now that worktops are separate
-        let price = |id: &str| q.items.iter().find(|i| i.id == id).unwrap().price;
-        assert!((price("b1") - price("b5")).abs() < 1.0, "{} vs {}", price("b1"), price("b5"));
+        // b4 and b6 are the same cabinet (b6 mirrored); with b6's end panel
+        // off they must cost the same, although only b4 heads a worktop run
+        let mut p2 = p.clone();
+        p2.cabinets.iter_mut().find(|c| c.id == "b6").unwrap().end_right = false;
+        let q2 = export::quote::quote(&p2, &compute(&p2));
+        let price = |id: &str| q2.items.iter().find(|i| i.id == id).unwrap().price;
+        assert!((price("b4") - price("b6")).abs() < 1.0, "{} vs {}", price("b4"), price("b6"));
         assert!((q.total - q.net * (1.0 + p.pricing.vat_pct / 100.0)).abs() < 0.02);
         // sheets priced whole
         let sheets: f64 = q.lines.iter().filter(|l| l.group == "Material").map(|l| l.qty).sum();
@@ -229,7 +233,8 @@ mod tests {
         let p = sample_kitchen();
         let r = compute(&p);
         let d = |id: &str| export::quote::describe(&p, &r, id);
-        assert!(d("b1").contains("3 drawers"), "{}", d("b1"));
+        assert!(d("b5").contains("3 drawers"), "{}", d("b5"));
+        assert!(d("d1").starts_with("Integrated dishwasher panel 600"), "{}", d("d1"));
         assert!(d("b2").contains("2 doors"), "{}", d("b2"));
         assert!(d("t1").starts_with("Tall cabinet 600×2200×580") && d("t1").contains("2 doors"), "{}", d("t1"));
         assert!(d("b3").starts_with("Blind corner") && d("b3").contains("1 door,"), "{}", d("b3"));
@@ -244,6 +249,46 @@ mod tests {
         let pins: u32 = r.build.hardware.iter().filter(|h| h.name == "Shelf pin 5mm").map(|h| h.qty).sum();
         let after = export::quote::quote(&p, &r).hardware;
         assert!((after - before - pins as f64 * 10.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn dishwasher_filler_appliance_end_panel() {
+        let mut p = sample_kitchen();
+        // dishwasher: one decor panel (Shaker = 5 pieces), toe kick, body placeholder, joins the worktop
+        let r = compute(&p);
+        let d1: Vec<_> = r.build.parts.iter().filter(|q| q.cabinet == "d1").collect();
+        assert_eq!(d1.iter().filter(|q| q.role == parts::Role::Front).count(), 5);
+        assert!(d1.iter().any(|q| q.name == "Toe kick"));
+        assert!(r.build.placeholders.iter().any(|x| x.cabinet == "d1"));
+        let back = r.build.parts.iter().find(|q| q.id == "d1-worktop").unwrap();
+        assert_eq!(back.w, 600.0 + 800.0 + 1200.0);
+        // end panel on b6: depth covers the door, full height
+        let e = r.build.parts.iter().find(|q| q.id == "b6-end-r").unwrap();
+        assert_eq!((e.w, e.h), (560.0 + 19.0, 870.0));
+        // filler and a fridge space added to the back run
+        p.cabinets.push(Cabinet { id: "f1".into(), kind: CabinetKind::Filler, width: 50.0, x: 3200.0, ..Cabinet::default() });
+        p.cabinets.push(Cabinet {
+            id: "a1".into(),
+            name: "Fridge".into(),
+            kind: CabinetKind::Appliance,
+            width: 600.0,
+            height: 2000.0,
+            depth: 650.0,
+            x: 3250.0,
+            ..Cabinet::default()
+        });
+        let r = compute(&p);
+        assert!(r.build.warnings.is_empty(), "{:?}", r.build.warnings);
+        let f1: Vec<_> = r.build.parts.iter().filter(|q| q.cabinet == "f1").collect();
+        assert_eq!(f1.len(), 2, "strip + toe kick");
+        assert!(r.build.parts.iter().all(|q| q.cabinet != "a1"), "appliance space cuts nothing");
+        // filler (under-worktop height) extends the back worktop; the tall fridge space does not
+        let back = r.build.parts.iter().find(|q| q.id == "d1-worktop").unwrap();
+        assert_eq!(back.w, 600.0 + 800.0 + 1200.0 + 50.0);
+        let q = export::quote::quote(&p, &r);
+        assert!(q.items.iter().all(|i| i.id != "a1"), "nothing to charge for an empty space");
+        let files = export::files(&p, &r);
+        assert!(files.iter().all(|f| !f.0.starts_with("drawings/f1") && !f.0.starts_with("drawings/a1")));
     }
 
     #[test]
