@@ -89,11 +89,14 @@ function stepHistory(from, to) {
 const undo = () => stepHistory(undoStack, redoStack);
 const redo = () => stepHistory(redoStack, undoStack);
 
-// Older saved projects lack newer default materials.
+// Bring any loaded project up to date: add newer default materials (with
+// their prices), then let the Rust parser fill every other missing field.
 function migrate(p) {
   const defaults = JSON.parse(cw.sample_project()).materials;
+  p.materials = p.materials || [];
+  for (const m of p.materials) if (m.price == null) m.price = defaults.find((d) => d.id === m.id)?.price ?? 0;
   for (const m of defaults) if (!p.materials.some((x) => x.id === m.id)) p.materials.push(m);
-  return p;
+  return JSON.parse(cw.normalize(JSON.stringify(p)));
 }
 
 // ---------- compute ----------
@@ -292,6 +295,63 @@ function renderTab() {
   if (tab === "sheets") renderSheets();
   if (tab === "hw") renderHardware();
   if (tab === "drawings") renderDrawings();
+  if (tab === "quote") renderQuote();
+}
+
+function renderQuote() {
+  const v = $("#v-quote"); v.replaceChildren();
+  const json = JSON.stringify(project);
+  const q = JSON.parse(cw.export_one(json, "quote", 0));
+  const pr = project.pricing;
+  const fmt = (n) => q.currency + n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const doc = h("div", { class: "qdoc" },
+    h("div", { class: "row" }, h("h2", {}, project.name),
+      h("button", { onclick: () => saveFile(slug(project.name) + "_quote.html", cw.export_one(json, "quote_html", 0)) }, "Customer quote"),
+      h("button", { onclick: () => saveFile(slug(project.name) + "_quote.csv", cw.export_one(json, "quote_csv", 0)) }, "CSV")),
+    h("table", {},
+      h("thead", {}, h("tr", {}, h("th", {}, "Item"), h("th", { class: "n" }, "Cost"), h("th", { class: "n" }, "Price"))),
+      h("tbody", {}, q.items.map((it) => h("tr", { class: it.id === selected ? "sel" : "", onclick: () => {
+        const cab = project.cabinets.find((c) => c.id === it.id || it.id.startsWith(c.id + "-"));
+        if (cab) { selected = cab.id; recompute(); }
+      } },
+        h("td", {}, h("b", {}, it.name), " ", h("span", { class: "mute" }, it.description)),
+        h("td", { class: "n mute" }, fmt(it.cost)), h("td", { class: "n" }, fmt(it.price))))),
+      h("tfoot", {},
+        h("tr", {}, h("td", { class: "n" }, "Subtotal"), h("td", { class: "n mute" }, fmt(q.cost)), h("td", { class: "n" }, fmt(q.net))),
+        h("tr", {}, h("td", { class: "n" }, `VAT ${pr.vat_pct}%`), h("td"), h("td", { class: "n" }, fmt(q.vat))),
+        h("tr", { class: "total" }, h("td", { class: "n" }, "Total"), h("td"), h("td", { class: "n" }, fmt(q.total))))),
+    h("h3", {}, "Cost breakdown"),
+    h("table", {},
+      h("thead", {}, h("tr", {}, ["", "Item", "Qty", "Unit", "Total"].map((t, i) => h("th", { class: i > 1 ? "n" : "" }, t)))),
+      h("tbody", {}, q.lines.map((l) => h("tr", {},
+        h("td", { class: "mute" }, l.group), h("td", {}, l.item), h("td", { class: "n" }, l.qty + " " + l.unit),
+        h("td", { class: "n mute" }, fmt(l.unit_price)), h("td", { class: "n" }, fmt(l.total))))),
+      h("tfoot", {},
+        h("tr", {}, h("td"), h("td", {}, "Cost"), h("td"), h("td"), h("td", { class: "n" }, fmt(q.cost))),
+        h("tr", {}, h("td"), h("td", {}, `Markup ${pr.markup_pct}%`), h("td"), h("td"), h("td", { class: "n" }, fmt(q.markup))))),
+  );
+  // Prices
+  const hwUnit = new Map(q.lines.filter((l) => l.group === "Hardware").map((l) => [l.item, l.unit_price]));
+  const hwField = (name) => {
+    const input = h("input", { type: "number", step: "any", value: pr.hardware[name] ?? hwUnit.get(name) ?? 0, onchange: () => {
+      const n = parseFloat(input.value);
+      if (isFinite(n)) pr.hardware[name] = n; else delete pr.hardware[name];
+      recompute();
+    } });
+    return h("label", {}, h("span", {}, name), input);
+  };
+  const prices = h("div", { class: "qprices" },
+    h("h3", {}, "Rates"),
+    h("div", { class: "grid2" },
+      field("Currency", pr, "currency", "text"), field("Markup %", pr, "markup_pct"),
+      field("VAT %", pr, "vat_pct"), field("Labour / h", pr, "labor_rate"),
+      field("CNC min / sheet", pr, "cnc_minutes_per_sheet"), field("Edge band / m", pr, "edge_band"),
+      field("Assembly h / cab", pr, "assembly_hours"), field("Install h / cab", pr, "install_hours")),
+    h("h3", {}, "Sheet prices"),
+    ...project.materials.map((m) => field(m.name, m, "price")),
+    h("h3", {}, "Hardware"),
+    ...[...hwUnit.keys()].map(hwField));
+  v.append(doc, prices);
 }
 
 function renderDrawings() {

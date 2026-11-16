@@ -1,6 +1,7 @@
 //! Project data model. Everything is in millimetres.
 
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -9,6 +10,65 @@ pub struct Project {
     pub settings: Settings,
     pub materials: Vec<Material>,
     pub cabinets: Vec<Cabinet>,
+    pub pricing: Pricing,
+}
+
+/// Prices for quoting. Currency is just a label.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Pricing {
+    pub currency: String,
+    /// Per metre of edge band.
+    pub edge_band: f64,
+    /// Per labour hour.
+    pub labor_rate: f64,
+    /// CNC / saw time per sheet, minutes.
+    pub cnc_minutes_per_sheet: f64,
+    /// Assembly time per cabinet, hours.
+    pub assembly_hours: f64,
+    /// Installation time per cabinet, hours.
+    pub install_hours: f64,
+    pub markup_pct: f64,
+    pub vat_pct: f64,
+    /// Unit price by hardware item name; missing items use a default.
+    pub hardware: BTreeMap<String, f64>,
+}
+
+impl Default for Pricing {
+    fn default() -> Self {
+        Self {
+            currency: "₪".into(),
+            edge_band: 4.0,
+            labor_rate: 150.0,
+            cnc_minutes_per_sheet: 20.0,
+            assembly_hours: 1.5,
+            install_hours: 0.75,
+            markup_pct: 30.0,
+            vat_pct: 18.0,
+            hardware: BTreeMap::new(),
+        }
+    }
+}
+
+impl Pricing {
+    /// Unit price for a hardware item: explicit price, else a default by kind.
+    pub fn hardware_price(&self, name: &str) -> f64 {
+        if let Some(p) = self.hardware.get(name) {
+            return *p;
+        }
+        let n = name.to_lowercase();
+        if n.starts_with("handle") {
+            25.0
+        } else if n.contains("hinge") {
+            15.0
+        } else if n.contains("slide") {
+            90.0
+        } else if n.contains("shelf pin") {
+            0.5
+        } else {
+            0.0
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -82,6 +142,8 @@ pub struct Material {
     pub grain: bool,
     /// CSS hex colour for the 3D view.
     pub color: String,
+    /// Price per sheet (or worktop blank).
+    pub price: f64,
 }
 
 impl Default for Material {
@@ -94,6 +156,7 @@ impl Default for Material {
             sheet_width: 2070.0,
             grain: false,
             color: "#eeeeea".into(),
+            price: 350.0,
         }
     }
 }
@@ -250,6 +313,7 @@ pub fn default_materials() -> Vec<Material> {
             sheet_width: 2070.0,
             grain: false,
             color: "#e4e2dc".into(),
+            price: 120.0,
         },
         Material {
             id: "front".into(),
@@ -259,6 +323,7 @@ pub fn default_materials() -> Vec<Material> {
             sheet_width: 2070.0,
             grain: true,
             color: "#c49a6c".into(),
+            price: 900.0,
         },
         Material {
             id: "drawer".into(),
@@ -268,6 +333,7 @@ pub fn default_materials() -> Vec<Material> {
             sheet_width: 1250.0,
             grain: true,
             color: "#e8d3a8".into(),
+            price: 380.0,
         },
         Material {
             id: "panel".into(),
@@ -277,6 +343,7 @@ pub fn default_materials() -> Vec<Material> {
             sheet_width: 2070.0,
             grain: true,
             color: "#b98e60".into(),
+            price: 450.0,
         },
         Material {
             id: "top".into(),
@@ -286,6 +353,7 @@ pub fn default_materials() -> Vec<Material> {
             sheet_width: 650.0,
             grain: true,
             color: "#9c7350".into(),
+            price: 1600.0,
         },
     ]
 }
@@ -363,7 +431,8 @@ pub fn sample_kitchen() -> Project {
     }
     let mut x = 600.0;
     for (id, w) in [("w1", 600.0), ("w2", 800.0), ("w3", 600.0)] {
-        cabs.push(Cabinet { x, ..wall(id, w) });
+        let doors = if w > 600.0 { 2 } else { 1 };
+        cabs.push(Cabinet { x, doors, ..wall(id, w) });
         x += w;
     }
     if let Some(w3) = cabs.iter_mut().find(|c| c.id == "w3") {
@@ -377,6 +446,7 @@ pub fn sample_kitchen() -> Project {
         settings: s,
         materials: default_materials(),
         cabinets: cabs,
+        pricing: Pricing::default(),
     }
 }
 

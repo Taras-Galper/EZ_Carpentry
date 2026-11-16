@@ -37,6 +37,9 @@ pub fn export_one(json: &str, kind: &str, index: usize) -> Result<String, JsErro
         "cutlist" => cw::export::cutlist_csv(&p, &r.build),
         "hardware" => cw::export::hardware_csv(&p, &r.build),
         "labels" => cw::export::labels_csv(&p, &r),
+        "quote" => serde_json::to_string(&cw::export::quote::quote(&p, &r)).unwrap_or_default(),
+        "quote_csv" => cw::export::quote::quote_csv(&cw::export::quote::quote(&p, &r)),
+        "quote_html" => cw::export::quote::quote_html(&p, &cw::export::quote::quote(&p, &r), p.pricing.vat_pct),
         "obj" => cw::export::obj(&p, &r.build),
         "part_dxf" => cw::export::dxf::part_dxf(parts.get(index).ok_or_else(|| JsError::new("no such part"))?),
         "sheet_dxf" => cw::export::dxf::sheet_dxf(sheet()?, parts),
@@ -54,4 +57,12 @@ pub fn export_one(json: &str, kind: &str, index: usize) -> Result<String, JsErro
 #[wasm_bindgen]
 pub fn zip_one(name: &str, data: &[u8]) -> Vec<u8> {
     cw::export::zip::store(&[(name.to_string(), data.to_vec())])
+}
+
+/// Parse with defaults for every missing field and re-serialize, so the
+/// editor always works on a complete project (older saves, hand-written JSON).
+#[wasm_bindgen]
+pub fn normalize(json: &str) -> Result<String, JsError> {
+    let p = project(json)?;
+    serde_json::to_string(&p).map_err(|e| JsError::new(&e.to_string()))
 }

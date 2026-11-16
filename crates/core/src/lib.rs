@@ -203,6 +203,50 @@ mod tests {
     }
 
     #[test]
+    fn quote_adds_up() {
+        let p = sample_kitchen();
+        let r = compute(&p);
+        let q = export::quote::quote(&p, &r);
+        let line_sum: f64 = q.lines.iter().map(|l| l.total).sum();
+        assert!((line_sum - q.cost).abs() < 0.05 * q.lines.len() as f64, "{line_sum} vs {}", q.cost);
+        // cabinets + worktops share out the whole cost
+        let item_cost: f64 = q.items.iter().map(|c| c.cost).sum();
+        assert!((item_cost - q.cost).abs() < 0.01 * q.items.len() as f64 + 0.5, "{item_cost} vs {}", q.cost);
+        let k = 1.0 + p.pricing.markup_pct / 100.0;
+        assert!((q.net - q.cost * k).abs() < 0.01 * q.items.len() as f64 + 0.5);
+        assert_eq!(q.items.iter().filter(|i| i.name == "Worktop").count(), 2);
+        // identical drawer bases cost the same now that worktops are separate
+        let price = |id: &str| q.items.iter().find(|i| i.id == id).unwrap().price;
+        assert!((price("b1") - price("b5")).abs() < 1.0, "{} vs {}", price("b1"), price("b5"));
+        assert!((q.total - q.net * (1.0 + p.pricing.vat_pct / 100.0)).abs() < 0.02);
+        // sheets priced whole
+        let sheets: f64 = q.lines.iter().filter(|l| l.group == "Material").map(|l| l.qty).sum();
+        assert_eq!(sheets as usize, r.nesting.sheets.len());
+    }
+
+    #[test]
+    fn quote_descriptions() {
+        let p = sample_kitchen();
+        let r = compute(&p);
+        let d = |id: &str| export::quote::describe(&p, &r, id);
+        assert!(d("b1").contains("3 drawers"), "{}", d("b1"));
+        assert!(d("b2").contains("2 doors"), "{}", d("b2"));
+        assert!(d("t1").starts_with("Tall cabinet 600×2200×580") && d("t1").contains("2 doors"), "{}", d("t1"));
+        assert!(d("b3").starts_with("Blind corner") && d("b3").contains("1 door,"), "{}", d("b3"));
+    }
+
+    #[test]
+    fn hardware_price_override() {
+        let mut p = sample_kitchen();
+        let before = export::quote::quote(&p, &compute(&p)).hardware;
+        p.pricing.hardware.insert("Shelf pin 5mm".into(), 10.5);
+        let r = compute(&p);
+        let pins: u32 = r.build.hardware.iter().filter(|h| h.name == "Shelf pin 5mm").map(|h| h.qty).sum();
+        let after = export::quote::quote(&p, &r).hardware;
+        assert!((after - before - pins as f64 * 10.0).abs() < 0.01);
+    }
+
+    #[test]
     fn blind_corner_front() {
         let r = compute(&sample_kitchen());
         let b3: Vec<_> = r.build.parts.iter().filter(|q| q.cabinet == "b3" && q.role == parts::Role::Front).collect();

@@ -26,6 +26,12 @@ Drag a cabinet in 3D to move it (10 mm grid; its footprint snaps to walls and to
 Room width/depth/height (Project) draws the back and side walls; back wall at z = 0, side walls at x = 0 and x = width.
 The project is kept in the browser between visits; Save writes `project.json`.
 
+## Quoting
+
+Quote tab: rates (markup, VAT, labour per hour, CNC minutes per sheet, assembly and install hours per cabinet, edge band per metre), price per sheet for each material, and unit price per hardware item.
+Cost = whole sheets used × sheet price + edge band + hardware + labour. Each cabinet and each worktop is priced at its share of that cost (material by part area, CNC time by area, hardware and assembly by cabinet) plus markup; VAT is added to the subtotal.
+Prices are in `project.json` under `pricing`; sample prices are placeholders.
+
 ## Build
 
 ```
@@ -48,6 +54,8 @@ casework export kitchen.json --zip kitchen.zip
 | `project.json` | Full project; reopen in the editor or feed to the CLI |
 | `cutlist.csv` | Cabinet, part, material, thickness, length (with grain), width, qty, edge banding L1 L2 W1 W2, bores |
 | `hardware.csv` | Hinges, slides, shelf pins, handles per cabinet + totals |
+| `quote.html` | Printable customer quote: one line per cabinet and worktop, subtotal, VAT, total |
+| `quote.csv` | Internal costing: sheets, edge band, hardware, labour, markup, item prices, totals |
 | `labels.csv` | One row per physical part: id, cabinet, size, edges, bores, cut-outs, sheet number and position |
 | `parts/*.dxf` | One DXF R12 per part, inside face up, 1 unit = 1 mm |
 | `sheets/*.dxf` | Nested sheet layouts, ready for CAM |

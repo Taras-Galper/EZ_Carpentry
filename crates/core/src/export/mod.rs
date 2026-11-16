@@ -1,5 +1,6 @@
 pub mod drawing;
 pub mod dxf;
+pub mod quote;
 pub mod zip;
 
 use crate::model::Project;
@@ -244,6 +245,11 @@ pub fn files(project: &Project, report: &Report) -> Vec<(String, Vec<u8>)> {
         ("cutlist.csv".into(), cutlist_csv(project, b).into_bytes()),
         ("hardware.csv".into(), hardware_csv(project, b).into_bytes()),
         ("labels.csv".into(), labels_csv(project, report).into_bytes()),
+        ("quote.csv".into(), quote::quote_csv(&quote::quote(project, report)).into_bytes()),
+        (
+            "quote.html".into(),
+            quote::quote_html(project, &quote::quote(project, report), project.pricing.vat_pct).into_bytes(),
+        ),
         ("model.obj".into(), obj(project, b).into_bytes()),
     ];
     for p in &b.parts {

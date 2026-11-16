@@ -26,7 +26,8 @@
       "sheet_length": 2800.0,
       "sheet_width": 2070.0,
       "grain": false,
-      "color": "#eeeeea"
+      "color": "#eeeeea",
+      "price": 350.0
     },
     {
       "id": "back",
@@ -35,7 +36,8 @@
       "sheet_length": 2800.0,
       "sheet_width": 2070.0,
       "grain": false,
-      "color": "#e4e2dc"
+      "color": "#e4e2dc",
+      "price": 120.0
     },
     {
       "id": "front",
@@ -44,7 +46,8 @@
       "sheet_length": 2800.0,
       "sheet_width": 2070.0,
       "grain": true,
-      "color": "#c49a6c"
+      "color": "#c49a6c",
+      "price": 900.0
     },
     {
       "id": "drawer",
@@ -53,7 +56,8 @@
       "sheet_length": 2500.0,
       "sheet_width": 1250.0,
       "grain": true,
-      "color": "#e8d3a8"
+      "color": "#e8d3a8",
+      "price": 380.0
     },
     {
       "id": "panel",
@@ -62,7 +66,8 @@
       "sheet_length": 2800.0,
       "sheet_width": 2070.0,
       "grain": true,
-      "color": "#b98e60"
+      "color": "#b98e60",
+      "price": 450.0
     },
     {
       "id": "top",
@@ -71,7 +76,8 @@
       "sheet_length": 4100.0,
       "sheet_width": 650.0,
       "grain": true,
-      "color": "#9c7350"
+      "color": "#9c7350",
+      "price": 1600.0
     }
   ],
   "cabinets": [
@@ -356,7 +362,7 @@
       "rotation": 0.0,
       "toe_kick_height": 0.0,
       "toe_kick_depth": 60.0,
-      "doors": 1,
+      "doors": 2,
       "hinge_side": "left",
       "door_style": "shaker",
       "blind_side": "none",
@@ -407,5 +413,16 @@
       "panel_material": "panel",
       "handles": true
     }
-  ]
+  ],
+  "pricing": {
+    "currency": "₪",
+    "edge_band": 4.0,
+    "labor_rate": 150.0,
+    "cnc_minutes_per_sheet": 20.0,
+    "assembly_hours": 1.5,
+    "install_hours": 0.75,
+    "markup_pct": 30.0,
+    "vat_pct": 18.0,
+    "hardware": {}
+  }
 }

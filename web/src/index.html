@@ -53,6 +53,12 @@ figcaption{display:flex;gap:6px;align-items:center;padding:6px 8px;border-top:1p
 #v-drawings img{background:#fff}
 #coords{color:var(--mute);font-variant-numeric:tabular-nums;padding:6px;white-space:pre}
 button:disabled{opacity:.4;cursor:default}
+#v-quote{display:grid;grid-template-columns:1fr 300px}
+.qdoc{padding:16px 20px;overflow:auto}.qdoc h2{flex:1;margin:0;font-size:20px}
+.qdoc table{margin-top:10px}.qdoc td{white-space:normal;vertical-align:top}.qdoc td.n{white-space:nowrap}
+.qdoc tfoot td{border:none;padding:4px 8px}.qdoc tr.total td{font-weight:700;font-size:15px;border-top:2px solid var(--ink)}
+.mute{color:var(--mute)}
+.qprices{border-left:1px solid var(--line);background:var(--panel);padding:4px 12px 12px;overflow:auto}
 #v-hw{padding:12px;display:grid;grid-template-columns:1fr 1.4fr;gap:20px;align-items:start}
 table.hw tbody tr{cursor:default}
 h3{margin:14px 0 6px;font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--mute)}
@@ -90,7 +96,7 @@ footer#status{display:flex;gap:16px;padding:6px 12px;border-top:1px solid var(--
   <aside id="left"><div id="palette"></div><button id="projbtn">Project &amp; materials</button><ul id="list"></ul></aside>
   <section id="center">
     <nav id="tabs">
-      <button data-tab="3d">3D</button><button data-tab="parts">Parts</button><button data-tab="sheets">Sheets</button><button data-tab="hw">Hardware</button><button data-tab="drawings">Drawings</button>
+      <button data-tab="3d">3D</button><button data-tab="parts">Parts</button><button data-tab="sheets">Sheets</button><button data-tab="hw">Hardware</button><button data-tab="drawings">Drawings</button><button data-tab="quote">Quote</button>
       <span class="sp"></span>
       <span id="coords"></span>
       <label><input id="fronts" type="checkbox" checked>Fronts</label>
@@ -101,6 +107,7 @@ footer#status{display:flex;gap:16px;padding:6px 12px;border-top:1px solid var(--
     <div class="view" id="v-sheets" hidden></div>
     <div class="view" id="v-hw" hidden></div>
     <div class="view" id="v-drawings" hidden></div>
+    <div class="view" id="v-quote" hidden></div>
   </section>
   <aside id="right"><div id="props"></div></aside>
 </main>
