@@ -45,6 +45,10 @@ dl{display:grid;grid-template-columns:auto 1fr;gap:4px 10px;margin:0}dt{color:va
 figure{margin:0;background:var(--panel);border:1px solid var(--line);border-radius:8px;overflow:hidden}
 figure img{display:block;width:100%;height:auto}figure{display:flex;flex-direction:column}
 figcaption{display:flex;gap:6px;align-items:center;padding:6px 8px;border-top:1px solid var(--line)}figcaption span{flex:1}
+#v-drawings{padding:12px;display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:14px;align-content:start;align-items:start;grid-auto-rows:max-content}
+#v-drawings img{background:#fff}
+#coords{color:var(--mute);font-variant-numeric:tabular-nums;padding:6px;white-space:pre}
+button:disabled{opacity:.4;cursor:default}
 #v-hw{padding:12px;display:grid;grid-template-columns:1fr 1.4fr;gap:20px;align-items:start}
 table.hw tbody tr{cursor:default}
 h3{margin:14px 0 6px;font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--mute)}
@@ -69,6 +73,8 @@ footer#status{display:flex;gap:16px;padding:6px 12px;border-top:1px solid var(--
   <button id="sample">Sample</button>
   <button id="open">Open</button>
   <button id="save">Save</button>
+  <button id="undo" title="Undo (Ctrl+Z)" disabled>↶</button>
+  <button id="redo" title="Redo (Ctrl+Y)" disabled>↷</button>
   <input id="file" type="file" accept=".json,application/json" hidden>
   <select id="add"><option value="">+ Cabinet</option><option>Base</option><option>Drawers</option><option>Wall</option><option>Tall</option></select>
   <span class="sp"></span>
@@ -80,8 +86,9 @@ footer#status{display:flex;gap:16px;padding:6px 12px;border-top:1px solid var(--
   <aside id="left"><button id="projbtn">Project &amp; materials</button><ul id="list"></ul></aside>
   <section id="center">
     <nav id="tabs">
-      <button data-tab="3d">3D</button><button data-tab="parts">Parts</button><button data-tab="sheets">Sheets</button><button data-tab="hw">Hardware</button>
+      <button data-tab="3d">3D</button><button data-tab="parts">Parts</button><button data-tab="sheets">Sheets</button><button data-tab="hw">Hardware</button><button data-tab="drawings">Drawings</button>
       <span class="sp"></span>
+      <span id="coords"></span>
       <label><input id="fronts" type="checkbox" checked>Fronts</label>
       <button id="fit">Fit</button>
     </nav>
@@ -89,6 +96,7 @@ footer#status{display:flex;gap:16px;padding:6px 12px;border-top:1px solid var(--
     <div class="view" id="v-parts" hidden></div>
     <div class="view" id="v-sheets" hidden></div>
     <div class="view" id="v-hw" hidden></div>
+    <div class="view" id="v-drawings" hidden></div>
   </section>
   <aside id="right"><div id="props"></div></aside>
 </main>

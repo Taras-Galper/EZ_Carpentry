@@ -19,6 +19,7 @@ pub enum Role {
     Shelf,
     Front,
     DrawerBox,
+    Worktop,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -192,7 +193,127 @@ pub fn build(project: &Project) -> Build {
     for cab in &project.cabinets {
         build_cabinet(project, cab, &mut out);
     }
+    build_worktops(project, &mut out);
     out
+}
+
+/// Split a slab front into a five-piece Shaker door. Holes go to the
+/// piece that contains their centre, in that piece's own frame.
+fn shaker_pieces(p: Part, f: f64, g: f64, pm: &Material) -> Vec<Part> {
+    let (w, h) = (p.w, p.h);
+    let [x0, y0, z0] = p.box3d.pos;
+    let ft = p.box3d.size[2];
+    let pt = pm.thickness.min(ft);
+    let piece = |key: &str, name: &str, mat: &Material, pw: f64, ph: f64, grain_y: bool, b: Box3| Part {
+        id: format!("{}-{}", p.id, key),
+        cabinet: p.cabinet.clone(),
+        name: format!("{} {}", p.name, name),
+        role: Role::Front,
+        material: mat.id.clone(),
+        thickness: mat.thickness,
+        w: r1(pw),
+        h: r1(ph),
+        grain_y,
+        edges: [false; 4],
+        outline: rect(r1(pw), r1(ph)),
+        holes: vec![],
+        box3d: b,
+    };
+    let fm = Material { id: p.material.clone(), thickness: p.thickness, ..Material::default() };
+    let rail_len = w - 2.0 * f + 2.0 * g;
+    let mut out = vec![
+        piece("stl", "stile L", &fm, f, h, true, Box3 { pos: [x0, y0, z0], size: [f, h, ft] }),
+        piece("str", "stile R", &fm, f, h, true, Box3 { pos: [x0 + w - f, y0, z0], size: [f, h, ft] }),
+        piece("rb", "rail B", &fm, rail_len, f, false, Box3 { pos: [x0 + f, y0, z0], size: [w - 2.0 * f, f, ft] }),
+        piece("rt", "rail T", &fm, rail_len, f, false, Box3 { pos: [x0 + f, y0 + h - f, z0], size: [w - 2.0 * f, f, ft] }),
+        piece(
+            "pnl",
+            "panel",
+            pm,
+            w - 2.0 * f + 2.0 * g - 2.0,
+            h - 2.0 * f + 2.0 * g - 2.0,
+            true,
+            Box3 { pos: [x0 + f, y0 + f, z0 + (ft - pt) / 2.0], size: [w - 2.0 * f, h - 2.0 * f, pt] },
+        ),
+    ];
+    for hole in p.holes {
+        let (x, y) = (hole.x, hole.y);
+        let (k, nx, ny) = if x < f {
+            (0, x, y)
+        } else if x > w - f {
+            (1, x - (w - f), y)
+        } else if y < f {
+            (2, x - f + g, y)
+        } else if y > h - f {
+            (3, x - f + g, y - (h - f))
+        } else {
+            (4, x - f + g - 1.0, y - f + g - 1.0)
+        };
+        out[k].holes.push(Hole { x: r1(nx), y: r1(ny), ..hole });
+    }
+    out
+}
+
+/// One worktop per straight run of touching base cabinets.
+fn build_worktops(project: &Project, out: &mut Build) {
+    let s = &project.settings;
+    if s.worktop_thickness <= 0.0 {
+        return;
+    }
+    let tm = project.material("top");
+    let mut bases: Vec<&Cabinet> = project.cabinets.iter().filter(|c| c.kind == CabinetKind::Base).collect();
+    bases.sort_by(|a, b| {
+        (a.rotation, a.z, a.elevation, a.height, a.x)
+            .partial_cmp(&(b.rotation, b.z, b.elevation, b.height, b.x))
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    let mut runs: Vec<Vec<&Cabinet>> = vec![];
+    for c in bases {
+        if let Some(r) = runs.last_mut() {
+            let p = r[r.len() - 1];
+            let joins = c.rotation == 0.0
+                && p.rotation == 0.0
+                && p.z == c.z
+                && p.elevation == c.elevation
+                && p.height == c.height
+                && (c.x - (p.x + p.width)).abs() < 1.0;
+            if joins {
+                r.push(c);
+                continue;
+            }
+        }
+        runs.push(vec![c]);
+    }
+    for r in runs {
+        let first = r[0];
+        let last = r[r.len() - 1];
+        let len = last.x + last.width - first.x;
+        let depth = r.iter().map(|c| c.depth).fold(0.0, f64::max) + s.worktop_overhang;
+        let t = s.worktop_thickness;
+        out.parts.push(Part {
+            id: format!("{}-worktop", first.id),
+            cabinet: first.id.clone(),
+            name: "Worktop".into(),
+            role: Role::Worktop,
+            material: tm.id.clone(),
+            thickness: t,
+            w: r1(len),
+            h: r1(depth),
+            grain_y: false,
+            edges: [true, false, false, false],
+            outline: rect(r1(len), r1(depth)),
+            holes: vec![],
+            box3d: Box3 { pos: [0.0, first.height, 0.0], size: [len, t, depth] },
+        });
+        if len > tm.sheet_length - 2.0 * s.sheet_trim {
+            out.warnings.push(format!(
+                "Worktop over {} is {:.0} mm, longer than the {} blank",
+                r.iter().map(|c| c.id.as_str()).collect::<Vec<_>>().join("+"),
+                len,
+                tm.name
+            ));
+        }
+    }
 }
 
 fn build_cabinet(project: &Project, cab: &Cabinet, out: &mut Build) {
@@ -527,6 +648,27 @@ fn build_cabinet(project: &Project, cab: &Cabinet, out: &mut Build) {
             );
         }
         cx.hw("Shelf pin 5mm", 4 * n);
+    }
+
+    // ---------- shaker fronts ----------
+    if cab.door_style == DoorStyle::Shaker {
+        let pm = project.material(&cab.panel_material);
+        let f = s.shaker_frame;
+        let mut i = start;
+        while i < cx.out.parts.len() {
+            let p = &cx.out.parts[i];
+            if p.role == Role::Front && p.w.min(p.h) >= 2.0 * f + 60.0 {
+                let p = cx.out.parts.remove(i);
+                let pieces = shaker_pieces(p, f, s.shaker_groove, &pm);
+                let n = pieces.len();
+                for (k, q) in pieces.into_iter().enumerate() {
+                    cx.out.parts.insert(i + k, q);
+                }
+                i += n;
+            } else {
+                i += 1;
+            }
+        }
     }
 
     // ---------- sides (added last so all holes are known) ----------

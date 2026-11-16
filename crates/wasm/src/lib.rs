@@ -26,7 +26,7 @@ pub fn export_zip(json: &str) -> Result<Vec<u8>, JsError> {
     Ok(cw::export::bundle(&p, &r))
 }
 
-/// kind: "cutlist" | "hardware" | "obj" | "part_dxf" | "sheet_dxf" | "sheet_svg"
+/// kind: "cutlist" | "hardware" | "obj" | "part_dxf" | "sheet_dxf" | "sheet_svg" | "drawing" (index = cabinet)
 #[wasm_bindgen]
 pub fn export_one(json: &str, kind: &str, index: usize) -> Result<String, JsError> {
     let p = project(json)?;
@@ -40,6 +40,11 @@ pub fn export_one(json: &str, kind: &str, index: usize) -> Result<String, JsErro
         "part_dxf" => cw::export::dxf::part_dxf(parts.get(index).ok_or_else(|| JsError::new("no such part"))?),
         "sheet_dxf" => cw::export::dxf::sheet_dxf(sheet()?, parts),
         "sheet_svg" => cw::export::sheet_svg(&p, sheet()?, parts),
+        "drawing" => cw::export::drawing::cabinet_svg(
+            &p,
+            &r.build,
+            p.cabinets.get(index).ok_or_else(|| JsError::new("no such cabinet"))?,
+        ),
         _ => return Err(JsError::new("unknown export kind")),
     })
 }

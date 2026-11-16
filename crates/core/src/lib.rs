@@ -126,6 +126,43 @@ mod tests {
     }
 
     #[test]
+    fn worktop_spans_touching_base_run() {
+        let r = compute(&sample_kitchen());
+        let tops: Vec<_> = r.build.parts.iter().filter(|p| p.role == parts::Role::Worktop).collect();
+        assert_eq!(tops.len(), 1);
+        assert_eq!(tops[0].w, 600.0 + 800.0 + 450.0);
+        assert_eq!(tops[0].h, 560.0 + 20.0);
+    }
+
+    #[test]
+    fn shaker_door_has_five_pieces_and_keeps_holes() {
+        let mut p = sample_kitchen();
+        p.cabinets.retain(|c| c.id == "w1");
+        let slab = {
+            let mut q = p.clone();
+            q.cabinets[0].door_style = DoorStyle::Slab;
+            compute(&q)
+        };
+        let shaker = compute(&p);
+        let door_holes = |r: &Report| -> usize {
+            r.build.parts.iter().filter(|x| x.role == parts::Role::Front).map(|x| x.holes.len()).sum()
+        };
+        let pieces = shaker.build.parts.iter().filter(|x| x.id.starts_with("w1-door1-")).count();
+        assert_eq!(pieces, 5);
+        assert_eq!(door_holes(&slab), door_holes(&shaker));
+    }
+
+    #[test]
+    fn drawings_render() {
+        let p = sample_kitchen();
+        let r = compute(&p);
+        for c in &p.cabinets {
+            let s = export::drawing::cabinet_svg(&p, &r.build, c);
+            assert!(s.starts_with("<svg") && s.ends_with("</svg>"));
+        }
+    }
+
+    #[test]
     fn json_roundtrip_and_zip() {
         let p = sample_kitchen();
         let j = serde_json::to_string(&p).unwrap();

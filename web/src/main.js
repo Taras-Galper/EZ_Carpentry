@@ -65,13 +65,48 @@ function toast(msg) {
   clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove("on"), 2600);
 }
 
+// ---------- history ----------
+// Every recompute compares the project to the last snapshot, so any edit is undoable
+// and selection-only changes are not.
+const undoStack = [], redoStack = [];
+let lastSnap = null;
+function track(json) {
+  if (lastSnap !== null && json !== lastSnap) {
+    undoStack.push(lastSnap);
+    if (undoStack.length > 200) undoStack.shift();
+    redoStack.length = 0;
+  }
+  lastSnap = json;
+}
+function stepHistory(from, to) {
+  if (!from.length) return;
+  to.push(lastSnap);
+  lastSnap = from.pop();
+  project = JSON.parse(lastSnap);
+  if (selected && !project.cabinets.some((c) => c.id === selected)) selected = null;
+  recompute();
+}
+const undo = () => stepHistory(undoStack, redoStack);
+const redo = () => stepHistory(redoStack, undoStack);
+
+// Older saved projects lack newer default materials.
+function migrate(p) {
+  const defaults = JSON.parse(cw.sample_project()).materials;
+  for (const m of defaults) if (!p.materials.some((x) => x.id === m.id)) p.materials.push(m);
+  return p;
+}
+
 // ---------- compute ----------
 function recompute() {
+  const json = JSON.stringify(project);
   try {
-    report = JSON.parse(cw.compute(JSON.stringify(project)));
+    report = JSON.parse(cw.compute(json));
   } catch (e) {
     toast(String(e.message || e)); return;
   }
+  track(json);
+  $("#undo").disabled = !undoStack.length;
+  $("#redo").disabled = !redoStack.length;
   saveLocal();
   renderList();
   renderProps();
@@ -150,6 +185,10 @@ function renderProps() {
         field("System line", s, "system_line"), field("Hinge cup inset", s, "hinge_cup_inset"),
         field("Slide clearance", s, "slide_clearance"), field("Handle c/c", s, "handle_spacing"),
         field("Shelf setback", s, "shelf_setback")),
+      h("h3", {}, "Worktop"),
+      h("div", { class: "grid2" }, field("Thickness", s, "worktop_thickness"), field("Overhang", s, "worktop_overhang")),
+      h("h3", {}, "Shaker"),
+      h("div", { class: "grid2" }, field("Frame width", s, "shaker_frame"), field("Groove", s, "shaker_groove")),
       h("h3", {}, "Materials"),
       ...project.materials.map((m) => h("div", { class: "mat" },
         h("div", { class: "grid2" },
@@ -180,6 +219,8 @@ function renderProps() {
     h("div", { class: "grid2" },
       field("Doors", c, "doors", "select", [[0, "None"], [1, "1"], [2, "2"]]),
       field("Hinge", c, "hinge_side", "select", [["left", "Left"], ["right", "Right"]]),
+      field("Front style", c, "door_style", "select", [["slab", "Slab"], ["shaker", "Shaker"]]),
+      h("span"),
       field("Shelves", c, "shelves", "int"),
       field("Handles", c, "handles", "check")),
     field("Drawers (front heights, top first)", c, "drawers", "list"),
@@ -188,6 +229,7 @@ function renderProps() {
     field("Back", c, "back_material", "select", mats),
     field("Fronts", c, "front_material", "select", mats),
     field("Drawer box", c, "drawer_material", "select", mats),
+    c.door_style === "shaker" ? field("Shaker panel", c, "panel_material", "select", mats) : null,
   );
 }
 
@@ -209,6 +251,20 @@ function renderTab() {
   if (tab === "parts") renderParts();
   if (tab === "sheets") renderSheets();
   if (tab === "hw") renderHardware();
+  if (tab === "drawings") renderDrawings();
+}
+
+function renderDrawings() {
+  const v = $("#v-drawings"); v.replaceChildren();
+  const json = JSON.stringify(project);
+  project.cabinets.forEach((c, i) => {
+    if (selected && c.id !== selected) return;
+    const svg = cw.export_one(json, "drawing", i);
+    v.append(h("figure", {},
+      h("img", { src: "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg) }),
+      h("figcaption", {}, h("span", {}, `${c.id} · ${c.name}`),
+        h("button", { onclick: () => saveFile(`${slug(c.id)}_drawing.svg`, svg) }, "SVG"))));
+  });
 }
 
 const matOf = (id) => project.materials.find((m) => m.id === id) || { name: id, color: "#ccc", grain: false };
@@ -307,6 +363,8 @@ function renderHardware() {
 
 // ---------- 3D ----------
 let renderer, scene, camera, controls, root, framed = false;
+const groups = new Map();
+let drag = null;
 const matCache = new Map();
 function setup3d() {
   const host = $("#v-3d");
@@ -324,18 +382,60 @@ function setup3d() {
   root = new THREE.Group(); scene.add(root);
   new ResizeObserver(resize).observe(host);
   const ray = new THREE.Raycaster(), ptr = new THREE.Vector2();
-  let down = null;
-  renderer.domElement.addEventListener("pointerdown", (e) => (down = [e.clientX, e.clientY]));
-  renderer.domElement.addEventListener("pointerup", (e) => {
-    if (!down || Math.hypot(e.clientX - down[0], e.clientY - down[1]) > 4) return;
-    const r = renderer.domElement.getBoundingClientRect();
+  const floor = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+  const el = renderer.domElement;
+  const aim = (e) => {
+    const r = el.getBoundingClientRect();
     ptr.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
     ray.setFromCamera(ptr, camera);
+  };
+  const floorPoint = () => ray.ray.intersectPlane(floor, new THREE.Vector3());
+  el.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0) return;
+    aim(e);
     const hit = ray.intersectObjects(root.children, true).find((x) => x.object.userData.cab);
-    selected = hit ? hit.object.userData.cab : null;
+    const c = hit && project.cabinets.find((c) => c.id === hit.object.userData.cab);
+    const p = c && floorPoint();
+    drag = { sx: e.clientX, sy: e.clientY, c, moved: false, off: p ? [c.x - p.x, c.z - p.z] : null };
+  });
+  el.addEventListener("pointermove", (e) => {
+    if (!drag?.c || !drag.off) return;
+    if (!drag.moved && Math.hypot(e.clientX - drag.sx, e.clientY - drag.sy) < 5) return;
+    if (!drag.moved) { drag.moved = true; controls.enabled = false; el.setPointerCapture(e.pointerId); }
+    aim(e);
+    const p = floorPoint(); if (!p) return;
+    const [x, z] = snap(drag.c, p.x + drag.off[0], p.z + drag.off[1]);
+    drag.x = x; drag.z = z;
+    groups.get(drag.c.id)?.position.set(x, drag.c.elevation, z);
+    $("#coords").textContent = `${drag.c.id}  x ${x}  z ${z}`;
+  });
+  el.addEventListener("pointerup", (e) => {
+    const d = drag; drag = null;
+    controls.enabled = true;
+    $("#coords").textContent = "";
+    if (!d) return;
+    if (d.moved && d.x != null) {
+      d.c.x = d.x; d.c.z = d.z; selected = d.c.id; recompute(); return;
+    }
+    if (Math.hypot(e.clientX - d.sx, e.clientY - d.sy) > 4) return;
+    selected = d.c ? d.c.id : null;
     recompute();
   });
   (function loop() { requestAnimationFrame(loop); controls.update(); renderer.render(scene, camera); })();
+}
+// 10 mm grid; snap to neighbouring cabinet edges (same rotation) within 40 mm.
+function snap(c, x, z) {
+  x = Math.round(x / 10) * 10; z = Math.round(z / 10) * 10;
+  let bx = null, bd = 40;
+  for (const o of project.cabinets) {
+    if (o === c || o.rotation !== c.rotation) continue;
+    for (const t of [o.x + o.width, o.x - c.width, o.x, o.x + o.width - c.width]) {
+      const d = Math.abs(t - x); if (d < bd) { bd = d; bx = t; }
+    }
+  }
+  if (bx !== null) x = bx;
+  if (Math.abs(z) < 40) z = 0;
+  return [x, z];
 }
 function resize() {
   const host = $("#v-3d"), w = host.clientWidth, hh = host.clientHeight;
@@ -355,7 +455,7 @@ const edgeMat = new THREE.LineBasicMaterial({ color: 0x5a554c, transparent: true
 function updateScene() {
   if (!renderer) return;
   root.clear();
-  const groups = new Map();
+  groups.clear();
   for (const c of project.cabinets) {
     const g = new THREE.Group();
     g.position.set(c.x, c.elevation, c.z);
@@ -388,7 +488,7 @@ function frame() {
 async function main() {
   await loadEngine();
   document.documentElement.dataset.engine = engine;
-  project = loadLocal() || JSON.parse(cw.sample_project());
+  project = migrate(loadLocal() || JSON.parse(cw.sample_project()));
   selected = null;
 
   $("#add").addEventListener("change", (e) => { if (e.target.value) addCabinet(e.target.value); e.target.value = ""; });
@@ -398,7 +498,7 @@ async function main() {
   $("#open").onclick = () => $("#file").click();
   $("#file").onchange = async (e) => {
     const f = e.target.files[0]; if (!f) return;
-    try { project = JSON.parse(await f.text()); cw.compute(JSON.stringify(project)); selected = null; framed = false; recompute(); }
+    try { project = migrate(JSON.parse(await f.text())); cw.compute(JSON.stringify(project)); selected = null; framed = false; recompute(); }
     catch (err) { toast("Not a valid project: " + (err.message || err)); }
     e.target.value = "";
   };
@@ -409,8 +509,13 @@ async function main() {
   $$("#tabs button").forEach((b) => (b.onclick = () => { tab = b.dataset.tab; renderTab(); }));
   $("#fronts").onchange = (e) => { showFronts = e.target.checked; updateScene(); };
   $("#fit").onclick = frame;
+  $("#undo").onclick = undo;
+  $("#redo").onclick = redo;
   addEventListener("keydown", (e) => {
     if (e.target.matches("input,select,textarea")) return;
+    const mod = e.ctrlKey || e.metaKey;
+    if (mod && e.key.toLowerCase() === "z") { e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
+    if (mod && e.key.toLowerCase() === "y") { e.preventDefault(); redo(); return; }
     if ((e.key === "Delete" || e.key === "Backspace") && selected) {
       project.cabinets = project.cabinets.filter((c) => c.id !== selected); selected = null; recompute();
     }

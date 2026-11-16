@@ -32,6 +32,14 @@ pub struct Settings {
     pub handle_spacing: f64,
     /// Shelf front setback from carcass front.
     pub shelf_setback: f64,
+    /// Worktop thickness over base cabinet runs; 0 = no worktop.
+    pub worktop_thickness: f64,
+    /// Worktop overhang past the fronts.
+    pub worktop_overhang: f64,
+    /// Shaker stile/rail width.
+    pub shaker_frame: f64,
+    /// Shaker panel groove depth (also the rail tenon length).
+    pub shaker_groove: f64,
 }
 
 impl Default for Settings {
@@ -46,6 +54,10 @@ impl Default for Settings {
             slide_clearance: 13.0,
             handle_spacing: 128.0,
             shelf_setback: 20.0,
+            worktop_thickness: 38.0,
+            worktop_overhang: 20.0,
+            shaker_frame: 60.0,
+            shaker_groove: 8.0,
         }
     }
 }
@@ -86,6 +98,15 @@ pub enum CabinetKind {
     Tall,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum DoorStyle {
+    #[default]
+    Slab,
+    /// Five-piece frame: two stiles, two rails, a recessed panel.
+    Shaker,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum HingeSide {
@@ -114,6 +135,7 @@ pub struct Cabinet {
     /// Number of doors in the door zone: 0, 1 or 2.
     pub doors: u32,
     pub hinge_side: HingeSide,
+    pub door_style: DoorStyle,
     /// Drawer front heights, top to bottom. Doors fill what remains.
     pub drawers: Vec<f64>,
     pub shelves: u32,
@@ -121,6 +143,8 @@ pub struct Cabinet {
     pub back_material: String,
     pub front_material: String,
     pub drawer_material: String,
+    /// Shaker centre panel.
+    pub panel_material: String,
     pub handles: bool,
 }
 
@@ -141,12 +165,14 @@ impl Default for Cabinet {
             toe_kick_depth: 60.0,
             doors: 1,
             hinge_side: HingeSide::Left,
+            door_style: DoorStyle::Slab,
             drawers: vec![],
             shelves: 1,
             carcass_material: "carcass".into(),
             back_material: "back".into(),
             front_material: "front".into(),
             drawer_material: "drawer".into(),
+            panel_material: "panel".into(),
             handles: true,
         }
     }
@@ -187,6 +213,24 @@ pub fn default_materials() -> Vec<Material> {
             sheet_width: 1250.0,
             grain: true,
             color: "#e8d3a8".into(),
+        },
+        Material {
+            id: "panel".into(),
+            name: "Oak veneer MDF 6".into(),
+            thickness: 6.0,
+            sheet_length: 2800.0,
+            sheet_width: 2070.0,
+            grain: true,
+            color: "#b98e60".into(),
+        },
+        Material {
+            id: "top".into(),
+            name: "Oak worktop 38".into(),
+            thickness: 38.0,
+            sheet_length: 4100.0,
+            sheet_width: 650.0,
+            grain: true,
+            color: "#9c7350".into(),
         },
     ]
 }
@@ -278,6 +322,9 @@ pub fn sample_kitchen() -> Project {
         x += c.width;
     }
     cabs.append(&mut walls);
+    for c in cabs.iter_mut() {
+        c.door_style = DoorStyle::Shaker;
+    }
     Project {
         name: "Kitchen".into(),
         settings: Settings::default(),

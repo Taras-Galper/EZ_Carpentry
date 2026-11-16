@@ -20,6 +20,11 @@ GitHub Pages: https://taras-galper.github.io/EZ_Carpentry/ (enable Settings → 
 
 Every push builds `casework` for Windows, Linux and macOS: Actions → latest run → Artifacts.
 
+## Editor
+
+Drag a cabinet in 3D to move it (10 mm grid, snaps to neighbouring cabinet edges). Ctrl+Z / Ctrl+Y undo and redo every edit.
+The project is kept in the browser between visits; Save writes `project.json`.
+
 ## Build
 
 ```
@@ -45,6 +50,7 @@ casework export kitchen.json --zip kitchen.zip
 | `parts/*.dxf` | One DXF R12 per part, inside face up, 1 unit = 1 mm |
 | `sheets/*.dxf` | Nested sheet layouts, ready for CAM |
 | `sheets/*.svg` | Printable sheet layouts |
+| `drawings/*.svg` | Shop drawing per cabinet: front elevation, section, plan, dimensioned |
 | `model.obj` | 3D model of all parts (mm, Y up) |
 
 DXF layers (map these to tools/depths in AlphaCAM or any CAM):
@@ -68,4 +74,6 @@ Frameless / System 32, applied back, full-overlay fronts.
 - Hinges: 2 up to 900 mm, 3 to 1600, 4 to 2000, then 5; cups at the hinge-cup inset, plates on the system line.
 - Slides: longest of 250–550 mm that fits; drawer box = interior − 2 × slide clearance.
 - Shelf-pin rows at the system line from front and back, 32 mm pitch; shelves snap to the nearest row.
+- Worktop: one per straight run of touching base cabinets (same height, depth line and rotation 0), deepest cabinet + overhang. Set thickness 0 to turn off.
+- Shaker fronts: two full-height stiles, two rails with tenons (= groove depth), and a panel from the cabinet's panel material. Bores go to whichever piece holds them; fronts smaller than 2 × frame + 60 stay slab.
 - Nesting: MaxRects best-short-side-fit with kerf and trim; grained materials keep grain along the sheet length.

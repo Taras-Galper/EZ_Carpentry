@@ -9,7 +9,11 @@
     "hinge_cup_inset": 22.5,
     "slide_clearance": 13.0,
     "handle_spacing": 128.0,
-    "shelf_setback": 20.0
+    "shelf_setback": 20.0,
+    "worktop_thickness": 38.0,
+    "worktop_overhang": 20.0,
+    "shaker_frame": 60.0,
+    "shaker_groove": 8.0
   },
   "materials": [
     {
@@ -47,6 +51,24 @@
       "sheet_width": 1250.0,
       "grain": true,
       "color": "#e8d3a8"
+    },
+    {
+      "id": "panel",
+      "name": "Oak veneer MDF 6",
+      "thickness": 6.0,
+      "sheet_length": 2800.0,
+      "sheet_width": 2070.0,
+      "grain": true,
+      "color": "#b98e60"
+    },
+    {
+      "id": "top",
+      "name": "Oak worktop 38",
+      "thickness": 38.0,
+      "sheet_length": 4100.0,
+      "sheet_width": 650.0,
+      "grain": true,
+      "color": "#9c7350"
     }
   ],
   "cabinets": [
@@ -65,12 +87,14 @@
       "toe_kick_depth": 60.0,
       "doors": 2,
       "hinge_side": "left",
+      "door_style": "shaker",
       "drawers": [],
       "shelves": 5,
       "carcass_material": "carcass",
       "back_material": "back",
       "front_material": "front",
       "drawer_material": "drawer",
+      "panel_material": "panel",
       "handles": true
     },
     {
@@ -88,6 +112,7 @@
       "toe_kick_depth": 60.0,
       "doors": 0,
       "hinge_side": "left",
+      "door_style": "shaker",
       "drawers": [
         180.0,
         300.0,
@@ -98,6 +123,7 @@
       "back_material": "back",
       "front_material": "front",
       "drawer_material": "drawer",
+      "panel_material": "panel",
       "handles": true
     },
     {
@@ -115,12 +141,14 @@
       "toe_kick_depth": 60.0,
       "doors": 2,
       "hinge_side": "left",
+      "door_style": "shaker",
       "drawers": [],
       "shelves": 0,
       "carcass_material": "carcass",
       "back_material": "back",
       "front_material": "front",
       "drawer_material": "drawer",
+      "panel_material": "panel",
       "handles": true
     },
     {
@@ -138,6 +166,7 @@
       "toe_kick_depth": 60.0,
       "doors": 1,
       "hinge_side": "left",
+      "door_style": "shaker",
       "drawers": [
         160.0
       ],
@@ -146,6 +175,7 @@
       "back_material": "back",
       "front_material": "front",
       "drawer_material": "drawer",
+      "panel_material": "panel",
       "handles": true
     },
     {
@@ -163,12 +193,14 @@
       "toe_kick_depth": 60.0,
       "doors": 1,
       "hinge_side": "left",
+      "door_style": "shaker",
       "drawers": [],
       "shelves": 2,
       "carcass_material": "carcass",
       "back_material": "back",
       "front_material": "front",
       "drawer_material": "drawer",
+      "panel_material": "panel",
       "handles": true
     },
     {
@@ -186,12 +218,14 @@
       "toe_kick_depth": 60.0,
       "doors": 2,
       "hinge_side": "left",
+      "door_style": "shaker",
       "drawers": [],
       "shelves": 2,
       "carcass_material": "carcass",
       "back_material": "back",
       "front_material": "front",
       "drawer_material": "drawer",
+      "panel_material": "panel",
       "handles": true
     },
     {
@@ -209,12 +243,14 @@
       "toe_kick_depth": 60.0,
       "doors": 1,
       "hinge_side": "right",
+      "door_style": "shaker",
       "drawers": [],
       "shelves": 2,
       "carcass_material": "carcass",
       "back_material": "back",
       "front_material": "front",
       "drawer_material": "drawer",
+      "panel_material": "panel",
       "handles": true
     }
   ]
