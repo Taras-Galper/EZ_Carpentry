@@ -3,6 +3,8 @@
 //!   casework sample                 print the sample kitchen project JSON
 //!   casework export <project.json> [-o DIR] [--zip FILE]
 //!   casework summary <project.json>
+//!   casework walls <project.json>
+//!   casework fill <project.json> <wall> [base|wall|both] [-o OUT.json]
 
 use casework_core as cw;
 use std::{fs, path::PathBuf, process::exit};
@@ -30,6 +32,48 @@ fn main() {
             for w in &r.build.warnings {
                 eprintln!("warning: {w}");
             }
+        }
+        Some("walls") => {
+            let p = load(args.get(1).unwrap_or_else(|| die("missing project.json")));
+            for (i, w) in p.room.walls().iter().enumerate() {
+                let doors = p.room.openings.iter().filter(|o| o.wall == i).count();
+                println!(
+                    "wall {i}: {:.0} mm from ({:.0}, {:.0}), cabinet rotation {:.1}°, {doors} opening(s)",
+                    w.len, w.start[0], w.start[1], w.rotation
+                );
+            }
+        }
+        Some("fill") => {
+            use cw::room::{fill_wall, Tier};
+            let path = args.get(1).unwrap_or_else(|| die("missing project.json"));
+            let wall: usize = args.get(2).and_then(|s| s.parse().ok()).unwrap_or_else(|| die("missing wall number (see `casework walls`)"));
+            let mut out = PathBuf::from(path);
+            let mut tier = "both";
+            let mut i = 3;
+            while i < args.len() {
+                match args[i].as_str() {
+                    "-o" => {
+                        out = PathBuf::from(args.get(i + 1).unwrap_or_else(|| die("-o needs a file")));
+                        i += 1;
+                    }
+                    t @ ("base" | "wall" | "both") => tier = t,
+                    a => die(format!("unknown argument {a}")),
+                }
+                i += 1;
+            }
+            let mut p = load(path);
+            let tiers: &[Tier] = match tier {
+                "base" => &[Tier::Base],
+                "wall" => &[Tier::Wall],
+                _ => &[Tier::Base, Tier::Wall],
+            };
+            let before = p.cabinets.len();
+            for &t in tiers {
+                let new = fill_wall(&p, wall, t).unwrap_or_else(|e| die(e));
+                p.cabinets.extend(new);
+            }
+            fs::write(&out, serde_json::to_string_pretty(&p).unwrap()).unwrap_or_else(|e| die(e));
+            println!("{} cabinets added -> {}", p.cabinets.len() - before, out.display());
         }
         Some("export") => {
             let path = args.get(1).unwrap_or_else(|| die("missing project.json"));
@@ -65,7 +109,7 @@ fn main() {
             }
         }
         _ => {
-            eprintln!("usage:\n  casework sample > kitchen.json\n  casework export kitchen.json [-o DIR] [--zip FILE]\n  casework summary kitchen.json");
+            eprintln!("usage:\n  casework sample > kitchen.json\n  casework export kitchen.json [-o DIR] [--zip FILE]\n  casework summary kitchen.json\n  casework walls kitchen.json\n  casework fill kitchen.json <wall> [base|wall|both] [-o OUT.json]");
             exit(2)
         }
     }

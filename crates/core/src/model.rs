@@ -11,6 +11,7 @@ pub struct Project {
     pub materials: Vec<Material>,
     pub cabinets: Vec<Cabinet>,
     pub pricing: Pricing,
+    pub room: crate::room::Room,
 }
 
 /// Prices for quoting. Currency is just a label.
@@ -100,8 +101,8 @@ pub struct Settings {
     pub shaker_frame: f64,
     /// Shaker panel groove depth (also the rail tenon length).
     pub shaker_groove: f64,
-    /// Room shown in 3D: back wall at z = 0, side walls at x = 0 and
-    /// x = room_width. 0 = no room.
+    /// Legacy rectangular room (read from older files, moved into
+    /// `Project::room` on load).
     pub room_width: f64,
     pub room_depth: f64,
     pub room_height: f64,
@@ -409,12 +410,20 @@ pub fn sample_kitchen() -> Project {
         ..Cabinet::default()
     };
     let room_w = 3200.0;
-    let s = Settings {
-        room_width: room_w,
-        room_depth: 2600.0,
-        room_height: 2600.0,
-        ..Settings::default()
-    };
+    let s = Settings::default();
+    let mut room = crate::room::Room::rectangle(room_w, 2600.0);
+    // Window over the sink, door on the left wall.
+    room.openings = vec![
+        crate::room::Opening {
+            wall: 0,
+            kind: crate::room::OpeningKind::Window,
+            offset: 1250.0,
+            width: 700.0,
+            height: 1150.0,
+            sill: 1000.0,
+        },
+        crate::room::Opening { wall: 3, offset: 900.0, width: 850.0, ..Default::default() },
+    ];
     let top_depth = 560.0 + s.worktop_overhang;
     let mut cabs = vec![
         Cabinet {
@@ -458,11 +467,9 @@ pub fn sample_kitchen() -> Project {
         cabs.push(Cabinet { x: room_w, z, rotation: -90.0, ..c });
         z += cabs.last().map(|c| c.width).unwrap_or(0.0);
     }
-    let mut x = 600.0;
-    for (id, w) in [("w1", 600.0), ("w2", 800.0), ("w3", 600.0)] {
-        let doors = if w > 600.0 { 2 } else { 1 };
-        cabs.push(Cabinet { x, doors, ..wall(id, w) });
-        x += w;
+    // Wall cabinets either side of the window.
+    for (id, x, w) in [("w1", 600.0, 600.0), ("w3", 2000.0, 600.0)] {
+        cabs.push(Cabinet { x, ..wall(id, w) });
     }
     if let Some(w3) = cabs.iter_mut().find(|c| c.id == "w3") {
         w3.hinge_side = HingeSide::Right;
@@ -476,10 +483,27 @@ pub fn sample_kitchen() -> Project {
         materials: default_materials(),
         cabinets: cabs,
         pricing: Pricing::default(),
+        room,
     }
 }
 
 impl Project {
+    /// Bring older files up to date after parsing.
+    pub fn migrate(&mut self) {
+        let s = &mut self.settings;
+        if self.room.walls.is_empty() && s.room_width > 0.0 {
+            let d = if s.room_depth > 0.0 { s.room_depth } else { 3000.0 };
+            self.room = crate::room::Room::rectangle(s.room_width, d);
+            if s.room_height > 0.0 {
+                self.room.height = s.room_height;
+            }
+        }
+        s.room_width = 0.0;
+        s.room_depth = 0.0;
+        s.room_height = 0.0;
+        self.room.orient();
+    }
+
     pub fn material(&self, id: &str) -> Material {
         self.materials
             .iter()

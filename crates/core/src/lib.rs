@@ -6,6 +6,7 @@ pub mod export;
 pub mod model;
 pub mod nest;
 pub mod parts;
+pub mod room;
 
 pub use model::*;
 use serde::Serialize;
@@ -60,7 +61,9 @@ pub fn compute(project: &Project) -> Report {
 }
 
 pub fn parse(json: &str) -> Result<Project, String> {
-    serde_json::from_str(json).map_err(|e| e.to_string())
+    let mut p: Project = serde_json::from_str(json).map_err(|e| e.to_string())?;
+    p.migrate();
+    Ok(p)
 }
 
 #[cfg(test)]
@@ -289,6 +292,17 @@ mod tests {
         assert!(q.items.iter().all(|i| i.id != "a1"), "nothing to charge for an empty space");
         let files = export::files(&p, &r);
         assert!(files.iter().all(|f| !f.0.starts_with("drawings/f1") && !f.0.starts_with("drawings/a1")));
+    }
+
+    #[test]
+    fn old_rectangular_room_migrates() {
+        let mut v: serde_json::Value = serde_json::to_value(sample_kitchen()).unwrap();
+        v.as_object_mut().unwrap().remove("room");
+        v["settings"]["room_width"] = 3200.0.into();
+        v["settings"]["room_depth"] = 2600.0.into();
+        let p = parse(&v.to_string()).unwrap();
+        assert_eq!(p.room.walls, vec![[0.0, 0.0], [3200.0, 0.0], [3200.0, 2600.0], [0.0, 2600.0]]);
+        assert_eq!(p.settings.room_width, 0.0);
     }
 
     #[test]

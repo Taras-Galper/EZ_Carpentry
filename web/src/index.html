@@ -36,6 +36,7 @@ aside{background:var(--panel);overflow:auto;min-height:0}
 #tabs .sp{flex:1}#tabs label{display:flex;gap:4px;align-items:center;padding:6px;color:var(--mute)}
 .view{min-height:0;overflow:auto;position:relative}
 #v-3d{overflow:hidden}#v-3d canvas{display:block;position:absolute;inset:0}
+button.pri:disabled{background:#9db7e8;border-color:#9db7e8}
 #v-parts{display:grid;grid-template-columns:1fr 340px}
 .tablewrap{overflow:auto}
 table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}
@@ -54,6 +55,18 @@ figcaption{display:flex;gap:6px;align-items:center;padding:6px 8px;border-top:1p
 #views{display:flex;border:1px solid var(--line);border-radius:6px;overflow:hidden;margin:0 6px}
 #tabs #views button{border:none;border-radius:0;padding:4px 10px;color:var(--mute)}
 #tabs #views button.on{background:var(--ink);color:#fff}
+#overlay{position:absolute;inset:0;pointer-events:none;overflow:hidden;z-index:1}
+.wlabel{position:absolute;left:0;top:0;pointer-events:auto;cursor:pointer;background:#fff;border:1px solid var(--line);border-radius:4px;padding:1px 6px;font-size:12px;font-variant-numeric:tabular-nums}
+.wlabel.on{background:var(--acc);border-color:var(--acc);color:#fff}
+.vhandle{position:absolute;left:0;top:0;width:12px;height:12px;background:#fff;border:2px solid var(--acc);border-radius:2px;pointer-events:auto;cursor:move}
+#dial{position:absolute;left:10px;bottom:10px;z-index:2;display:flex;gap:4px;background:#fff;border:1px solid var(--line);border-radius:8px;padding:5px 6px;box-shadow:0 1px 4px rgba(0,0,0,.08)}
+#dial label{display:flex;align-items:center;gap:4px;margin:0;color:var(--mute);font-size:12px;font-weight:600}
+#dial input{width:64px;border:1px solid var(--line);border-radius:5px;padding:4px 6px;font-variant-numeric:tabular-nums;text-align:right}
+#plantools{position:absolute;top:10px;left:10px;display:flex;gap:6px;z-index:2}
+#plantools button{background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+#plantools button.pri{background:var(--acc);color:#fff}#plantools button.pri:disabled{background:#9db7e8;border-color:#9db7e8}
+.fill{display:grid;grid-template-columns:1.3fr 1fr 1fr;gap:6px}
+.grow{flex:1}
 #coords{color:var(--mute);font-variant-numeric:tabular-nums;padding:6px;white-space:pre}
 button:disabled{opacity:.4;cursor:default}
 #v-quote{display:grid;grid-template-columns:1fr 300px}
@@ -106,7 +119,10 @@ footer#status{display:flex;gap:16px;padding:6px 12px;border-top:1px solid var(--
       <label><input id="fronts" type="checkbox" checked>Fronts</label>
       <button id="fit">Fit</button>
     </nav>
-    <div class="view" id="v-3d"></div>
+    <div class="view" id="v-3d"><div id="overlay"></div><div id="plantools" hidden></div>
+      <div id="dial" hidden title="Type a value, or +n / -n to move by n">
+        <label>X<input data-k="x" inputmode="decimal"></label><label>Y<input data-k="y" inputmode="decimal"></label><label>Z<input data-k="z" inputmode="decimal"></label><label>↻<input data-k="r" inputmode="decimal"></label>
+      </div></div>
     <div class="view" id="v-parts" hidden></div>
     <div class="view" id="v-sheets" hidden></div>
     <div class="view" id="v-hw" hidden></div>

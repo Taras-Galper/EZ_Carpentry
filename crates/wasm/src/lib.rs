@@ -66,3 +66,22 @@ pub fn normalize(json: &str) -> Result<String, JsError> {
     let p = project(json)?;
     serde_json::to_string(&p).map_err(|e| JsError::new(&e.to_string()))
 }
+
+/// Fill wall `wall` with cabinets. tier: "base" | "wall" | "both".
+/// Returns the updated project JSON.
+#[wasm_bindgen]
+pub fn fill_wall(json: &str, wall: usize, tier: &str) -> Result<String, JsError> {
+    use cw::room::{fill_wall, Tier};
+    let mut p = project(json)?;
+    let tiers: &[Tier] = match tier {
+        "base" => &[Tier::Base],
+        "wall" => &[Tier::Wall],
+        "both" => &[Tier::Base, Tier::Wall],
+        _ => return Err(JsError::new("tier must be base, wall or both")),
+    };
+    for &t in tiers {
+        let new = fill_wall(&p, wall, t).map_err(|e| JsError::new(&e))?;
+        p.cabinets.extend(new);
+    }
+    serde_json::to_string(&p).map_err(|e| JsError::new(&e.to_string()))
+}

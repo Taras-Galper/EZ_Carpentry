@@ -22,6 +22,12 @@ Every push builds `casework` for Windows, Linux and macOS: Actions → latest ru
 
 ## Editor
 
+**Room.** In Plan, *Draw room* and click the inside corners (snaps to a 10 mm grid and 45° directions; Backspace removes the last corner); click the first corner, double-click, or press Enter to finish. *Rectangle* starts from a box. Drag the square handles to move corners. Click a wall's length label (or the wall) to select it: set its length, add doors and windows, or **fill it with cabinets** (base, wall, or both). Filling packs standard widths (1000, 900, 800, 600, 500, 450, 400, 300), keeps clear of doors, windows, corners and cabinets already there, and closes gaps against walls or cabinets with a filler (gaps beside doors and windows stay open). The same layout runs from the CLI (`casework fill`).
+
+**Moving.** Select a cabinet to get a move gizmo at its bottom-front centre; its arrows follow the cabinet's own width, depth and height, in 10 mm steps. The X / Y / Z / ↻ box under the 3D view takes exact values, or `+n` / `-n` to move by n (`=-n` for a negative coordinate). Arrow keys nudge 10 mm (Shift: 100 mm). Dragging a cabinet near any wall, angled or not, turns it to face the room and backs it onto the wall.
+
+`window.ezCarpentry` exposes the current project, selection, view and a world-to-screen helper for scripts and tests.
+
 3D / Plan / Front switch the camera; Plan and Front are flat (orthographic) for layout, left-drag on empty space pans. In Front, dragging moves a cabinet sideways only.
 Drag a cabinet in 3D to move it (10 mm grid; its footprint snaps to walls and to the edges of other cabinets, including perpendicular runs). R rotates the selected cabinet 90° in place. Ctrl+Z / Ctrl+Y undo and redo every edit.
 Room width/depth/height (Project) draws the back and side walls; back wall at z = 0, side walls at x = 0 and x = width.
@@ -44,6 +50,8 @@ Prices are in `project.json` under `pricing`; sample prices are placeholders.
 ```
 casework sample > kitchen.json
 casework summary kitchen.json
+casework walls kitchen.json                       # list walls with lengths and rotations
+casework fill kitchen.json 2 both                 # fill wall 2 with base + wall cabinets (base | wall | both)
 casework export kitchen.json -o out/          # folder of files
 casework export kitchen.json --zip kitchen.zip
 ```

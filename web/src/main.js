@@ -1,7 +1,9 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import { TransformControls } from "three/examples/jsm/controls/TransformControls.js";
 import init, * as cwWasm from "../pkg/casework_wasm.js";
 import wasmBytes from "../pkg/casework_wasm_bg.wasm";
+import { wallOf, walls as roomWalls, local as wallLocal, point as wallPoint, wallPieces, snapCorner } from "./room.js";
 
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -18,6 +20,8 @@ const h = (tag, attrs = {}, ...kids) => {
 
 const STORE = "casework.project.v1";
 let project, report, selected = null, tab = "3d", showFronts = true;
+let selWall = null;   // index of the selected wall, or null
+let drawing = null;   // { pts: [[x, z]...], cursor: [x, z] } while drawing a room
 let downloads = null;
 let cw = cwWasm, engine = "wasm";
 
@@ -111,10 +115,12 @@ function recompute() {
   $("#undo").disabled = !undoStack.length;
   $("#redo").disabled = !redoStack.length;
   saveLocal();
+  renderPlanTools();
   renderList();
   renderProps();
   renderStatus();
   renderTab();
+  renderDial();
 }
 
 // ---------- cabinet presets ----------
@@ -178,7 +184,7 @@ function renderPalette() {
 function renderList() {
   const ul = $("#list"); ul.replaceChildren();
   for (const c of project.cabinets) {
-    ul.append(h("li", { class: c.id === selected ? "sel" : "", onclick: () => { selected = c.id; recompute(); } },
+    ul.append(h("li", { class: c.id === selected ? "sel" : "", onclick: () => { selected = c.id; selWall = null; recompute(); } },
       h("b", {}, c.id), h("span", {}, c.name), h("em", {}, `${c.width}×${c.height}×${c.depth}`)));
   }
 }
@@ -211,6 +217,7 @@ function renderProps() {
   const el = $("#props"); el.replaceChildren();
   // Conditional fields pass null; leave them out.
   const put = (...kids) => el.append(...kids.flat().filter((k) => k != null && k !== false));
+  if (selWall != null && wallOf(project.room, selWall)) return renderWallPanel(put);
   const c = project.cabinets.find((c) => c.id === selected);
   const mats = project.materials.map((m) => [m.id, m.name]);
   if (!c) {
@@ -226,7 +233,11 @@ function renderProps() {
         field("Slide clearance", s, "slide_clearance"), field("Handle c/c", s, "handle_spacing"),
         field("Shelf setback", s, "shelf_setback")),
       h("h3", {}, "Room"),
-      h("div", { class: "grid3" }, field("Width", s, "room_width"), field("Depth", s, "room_depth"), field("Height", s, "room_height")),
+      h("div", { class: "grid2" }, field("Wall thickness", project.room, "thickness"), field("Height", project.room, "height")),
+      h("div", { class: "row" },
+        h("button", { onclick: startDrawing }, "Draw room"),
+        h("button", { onclick: rectangleRoom }, "Rectangle"),
+        project.room.walls.length ? h("button", { class: "danger", onclick: () => { project.room.walls = []; project.room.openings = []; selWall = null; recompute(); } }, "Remove") : null),
       h("h3", {}, "Worktop"),
       h("div", { class: "grid2" }, field("Thickness", s, "worktop_thickness"), field("Overhang", s, "worktop_overhang")),
       h("h3", {}, "Shaker"),
@@ -294,6 +305,117 @@ function renderProps() {
   );
 }
 
+function renderWallPanel(put) {
+  const w = wallOf(project.room, selWall), i = selWall;
+  const fill = (tier) => {
+    const before = project.cabinets.length;
+    try { project = JSON.parse(cw.fill_wall(JSON.stringify(project), i, tier)); }
+    catch (e) { toast(String(e.message || e)); return; }
+    const n = project.cabinets.length - before;
+    toast(n ? `${n} added` : "No free space on this wall");
+    recompute();
+  };
+  const lenInput = h("input", { type: "number", step: "any", value: Math.round(w.len), onchange: () => {
+    const L = parseFloat(lenInput.value); if (!(L > 50)) return;
+    const n = project.room.walls.length;
+    project.room.walls[(i + 1) % n] = [Math.round(w.start[0] + w.dir[0] * L), Math.round(w.start[1] + w.dir[1] * L)];
+    commitRoom();
+  } });
+  const ops = project.room.openings.map((o, k) => [o, k]).filter(([o]) => o.wall === i);
+  const addOpening = (kind) => {
+    const width = kind === "door" ? 850 : 1000;
+    project.room.openings.push(kind === "door"
+      ? { wall: i, kind, offset: Math.max(0, Math.round((w.len - width) / 2)), width, height: 2050, sill: 0 }
+      : { wall: i, kind, offset: Math.max(0, Math.round((w.len - width) / 2)), width, height: 1200, sill: 950 });
+    recompute();
+  };
+  put(
+    h("div", { class: "row" }, h("h3", {}, `Wall ${i + 1}`),
+      h("button", { onclick: () => { selWall = null; recompute(); } }, "Done")),
+    h("label", {}, h("span", {}, "Length"), lenInput),
+    h("h3", {}, "Fill with cabinets"),
+    h("div", { class: "fill" },
+      h("button", { class: "pri", onclick: () => fill("both") }, "Base + wall"),
+      h("button", { onclick: () => fill("base") }, "Base"),
+      h("button", { onclick: () => fill("wall") }, "Wall")),
+    h("h3", {}, "Doors & windows"),
+    ...ops.map(([o, k]) => h("div", { class: "mat" },
+      h("div", { class: "row" },
+        h("b", { class: "grow" }, o.kind === "window" ? "Window" : "Door"),
+        h("button", { class: "danger", onclick: () => { project.room.openings.splice(k, 1); recompute(); } }, "Delete")),
+      h("div", { class: "grid2" },
+        field("From corner", o, "offset"), field("Width", o, "width"),
+        field("Height", o, "height"), o.kind === "window" ? field("Sill", o, "sill") : null))),
+    h("div", { class: "row" },
+      h("button", { onclick: () => addOpening("door") }, "+ Door"),
+      h("button", { onclick: () => addOpening("window") }, "+ Window")),
+  );
+}
+
+// Room edits can flip the corner order; the Rust parser re-orients it.
+function commitRoom() {
+  project = JSON.parse(cw.normalize(JSON.stringify(project)));
+  recompute();
+}
+function rectangleRoom() {
+  // Big enough for what is already placed, 3600 x 3000 at least.
+  let W = 3600, D = 3000;
+  for (const c of project.cabinets) { const f = footprint(c); W = Math.max(W, Math.ceil(f.x1 / 100) * 100); D = Math.max(D, Math.ceil(f.z1 / 100) * 100); }
+  project.room.walls = [[0, 0], [W, 0], [W, D], [0, D]];
+  project.room.openings = [];
+  selWall = null; selected = null;
+  if (view !== "plan") setView("plan");
+  commitRoom();
+}
+function startDrawing() {
+  drawing = { pts: [], cursor: null };
+  selected = null; selWall = null;
+  if (view !== "plan") setView("plan");
+  recompute();
+}
+function finishDrawing() {
+  const d = drawing; drawing = null;
+  if (d && d.pts.length >= 3) {
+    project.room.walls = d.pts;
+    project.room.openings = [];
+    commitRoom();
+  } else recompute();
+}
+
+// ---------- coordinate dial ----------
+// Type a number to place the selected cabinet exactly, or +n / -n to move it
+// by n. "=-n" sets a negative coordinate.
+function readDial(input, current) {
+  const t = input.value.trim().replace(",", ".");
+  if (/^[+-]/.test(t)) { const d = parseFloat(t); return isFinite(d) ? current + d : null; }
+  const v = parseFloat(t.replace(/^=/, ""));
+  return isFinite(v) ? v : null;
+}
+function renderDial() {
+  const el = $("#dial");
+  const c = tab === "3d" && !drawing && project.cabinets.find((c) => c.id === selected);
+  el.hidden = !c;
+  if (!c) return;
+  const keys = [["x", "x"], ["y", "elevation"], ["z", "z"], ["r", "rotation"]];
+  for (const [k, prop] of keys) {
+    const input = $(`#dial input[data-k=${k}]`);
+    input.onchange = () => {
+      const v = readDial(input, c[prop]);
+      if (v == null) { input.value = fmtDial(c[prop]); return; }
+      c[prop] = prop === "elevation" ? Math.max(0, v) : prop === "rotation" ? ((v % 360) + 540) % 360 - 180 : v;
+      recompute();
+    };
+  }
+  showDial({ x: c.x, y: c.elevation, z: c.z, r: c.rotation });
+}
+const fmtDial = (v) => String(Math.round(v * 10) / 10);
+function showDial(v) {
+  for (const [k, val] of Object.entries(v)) {
+    const input = $(`#dial input[data-k=${k}]`);
+    if (input && document.activeElement !== input) input.value = fmtDial(val);
+  }
+}
+
 function renderStatus() {
   const s = report.summary;
   const sheets = s.sheets.map(([n, q]) => `${q}× ${n}`).join(" · ");
@@ -306,7 +428,7 @@ function renderStatus() {
 
 // ---------- tabs ----------
 function renderTab() {
-  $$("#tabs button").forEach((b) => b.classList.toggle("on", b.dataset.tab === tab));
+  $$("#tabs button[data-tab]").forEach((b) => b.classList.toggle("on", b.dataset.tab === tab));
   $$(".view").forEach((v) => (v.hidden = v.id !== "v-" + tab));
   if (tab === "3d") updateScene();
   if (tab === "parts") renderParts();
@@ -492,6 +614,9 @@ function renderHardware() {
 // ---------- 3D ----------
 let renderer, scene, camera, controls, root, framed = false;
 let persp, ortho, view = "3d"; // "3d" | "plan" | "front"
+let roomGroup, previewLine, aimAt, floorAt, vdrag = null;
+let gizmo, gizmoProxy; // TransformControls on a handle at the selected cabinet's bottom-front centre
+const overlayItems = []; // { el, pos: Vector3, kind: "label" | "handle" }
 const groups = new Map();
 let drag = null;
 const matCache = new Map();
@@ -510,6 +635,42 @@ function setup3d() {
   const sun = new THREE.DirectionalLight(0xffffff, 1.6); sun.position.set(-2000, 4000, 5000); scene.add(sun);
   const grid = new THREE.GridHelper(10000, 100, 0xcfcac0, 0xe2ded6); scene.add(grid);
   root = new THREE.Group(); scene.add(root);
+  roomGroup = new THREE.Group(); scene.add(roomGroup);
+  previewLine = new THREE.Line(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: 0x2f6fe4 }));
+  previewLine.frustumCulled = false;
+  scene.add(previewLine);
+  // Move gizmo: along the cabinet's own width / height / depth, 10 mm steps.
+  gizmo = new TransformControls(camera, renderer.domElement);
+  gizmo.setSpace("local");
+  gizmo.setTranslationSnap(10);
+  gizmo.setSize(0.8);
+  scene.add(gizmo.getHelper());
+  gizmoProxy = new THREE.Object3D();
+  scene.add(gizmoProxy);
+  // Cabinet origin (back-left) from the handle's position.
+  const originFromProxy = (c) => {
+    const r = THREE.MathUtils.degToRad(c.rotation), sn = Math.sin(r), cs = Math.cos(r);
+    const lx = c.width / 2, lz = c.depth; // handle in cabinet-local coordinates
+    return [gizmoProxy.position.x - (lx * cs + lz * sn), gizmoProxy.position.z - (-lx * sn + lz * cs)];
+  };
+  gizmo.addEventListener("dragging-changed", (e) => {
+    controls.enabled = !e.value;
+    if (e.value) return;
+    const c = project.cabinets.find((c) => c.id === selected);
+    if (!c) return;
+    const [x, z] = originFromProxy(c);
+    c.x = Math.round(x * 10) / 10; c.z = Math.round(z * 10) / 10;
+    c.elevation = Math.max(0, Math.round(gizmoProxy.position.y * 10) / 10);
+    recompute();
+  });
+  gizmo.addEventListener("objectChange", () => {
+    const c = project.cabinets.find((c) => c.id === selected), g = c && groups.get(c.id);
+    if (!g) return;
+    if (gizmoProxy.position.y < 0) gizmoProxy.position.y = 0;
+    const [x, z] = originFromProxy(c);
+    g.position.set(x, gizmoProxy.position.y, z);
+    showDial({ x, y: gizmoProxy.position.y, z });
+  });
   new ResizeObserver(resize).observe(host);
   const ray = new THREE.Raycaster(), ptr = new THREE.Vector2();
   const floor = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
@@ -522,24 +683,43 @@ function setup3d() {
   };
   // In the front view the floor is edge-on, so drag along a vertical plane (x only).
   const floorPoint = () => ray.ray.intersectPlane(view === "front" ? wallPlane : floor, new THREE.Vector3());
+  aimAt = aim;
+  floorAt = () => ray.ray.intersectPlane(floor, new THREE.Vector3());
+  const shown = (o) => { for (; o; o = o.parent) if (!o.visible) return false; return true; };
   el.addEventListener("pointerdown", (e) => {
     if (e.button !== 0) return;
+    if (gizmo.axis) { drag = null; return; } // the gizmo handles this drag
     aim(e);
-    const hit = ray.intersectObjects(root.children, true).find((x) => x.object.userData.cab);
-    const c = hit && project.cabinets.find((c) => c.id === hit.object.userData.cab);
+    if (drawing) { drag = { sx: e.clientX, sy: e.clientY, drawing: true }; return; }
+    const hit = ray.intersectObjects([...root.children, ...roomGroup.children], true)
+      .find((x) => shown(x.object) && (x.object.userData.cab || x.object.userData.wall != null));
+    const c = hit?.object.userData.cab && project.cabinets.find((c) => c.id === hit.object.userData.cab);
     const p = c && floorPoint();
-    drag = { sx: e.clientX, sy: e.clientY, c, moved: false, off: p ? [c.x - p.x, c.z - p.z] : null };
+    drag = { sx: e.clientX, sy: e.clientY, c, wall: hit?.object.userData.wall, moved: false, off: p ? [c.x - p.x, c.z - p.z] : null };
   });
+  el.addEventListener("dblclick", () => { if (drawing && drawing.pts.length >= 3) finishDrawing(); });
   el.addEventListener("pointermove", (e) => {
+    if (drawing) {
+      aim(e);
+      const p = floorAt(); if (!p) return;
+      const first = drawing.pts[0], last = drawing.pts.at(-1);
+      let q = snapCorner(last, p.x, p.z);
+      if (first && drawing.pts.length >= 3 && Math.hypot(q[0] - first[0], q[1] - first[1]) < 150) q = first;
+      drawing.cursor = q;
+      updatePreview();
+      $("#coords").textContent = last ? `${Math.round(Math.hypot(q[0] - last[0], q[1] - last[1]))}` : `${q[0]}, ${q[1]}`;
+      return;
+    }
     if (!drag?.c || !drag.off) return;
     if (!drag.moved && Math.hypot(e.clientX - drag.sx, e.clientY - drag.sy) < 5) return;
     if (!drag.moved) { drag.moved = true; controls.enabled = false; el.setPointerCapture(e.pointerId); }
     aim(e);
     const p = floorPoint(); if (!p) return;
-    let [x, z] = snap(drag.c, p.x + drag.off[0], view === "front" ? drag.c.z : p.z + drag.off[1]);
-    if (view === "front") z = drag.c.z;
-    drag.x = x; drag.z = z;
-    groups.get(drag.c.id)?.position.set(x, drag.c.elevation, z);
+    let [x, z, rot] = snap(drag.c, p.x + drag.off[0], view === "front" ? drag.c.z : p.z + drag.off[1]);
+    if (view === "front") { z = drag.c.z; rot = drag.c.rotation; }
+    drag.x = x; drag.z = z; drag.rot = rot;
+    const g = groups.get(drag.c.id);
+    if (g) { g.position.set(x, drag.c.elevation, z); g.rotation.y = THREE.MathUtils.degToRad(rot); }
     $("#coords").textContent = `${drag.c.id}  x ${x}  z ${z}`;
   });
   el.addEventListener("pointerup", (e) => {
@@ -547,14 +727,108 @@ function setup3d() {
     controls.enabled = true;
     $("#coords").textContent = "";
     if (!d) return;
+    if (d.drawing) {
+      if (Math.hypot(e.clientX - d.sx, e.clientY - d.sy) > 4 || !drawing?.cursor) return;
+      const q = drawing.cursor, first = drawing.pts[0];
+      if (first && drawing.pts.length >= 3 && q === first) { finishDrawing(); return; }
+      const last = drawing.pts.at(-1);
+      if (!last || Math.hypot(q[0] - last[0], q[1] - last[1]) > 5) drawing.pts.push(q);
+      renderPlanTools(); updatePreview();
+      return;
+    }
     if (d.moved && d.x != null) {
-      d.c.x = d.x; d.c.z = d.z; selected = d.c.id; recompute(); return;
+      d.c.x = d.x; d.c.z = d.z; d.c.rotation = d.rot ?? d.c.rotation; selected = d.c.id; selWall = null; recompute(); return;
     }
     if (Math.hypot(e.clientX - d.sx, e.clientY - d.sy) > 4) return;
     selected = d.c ? d.c.id : null;
+    selWall = !d.c && d.wall != null ? d.wall : null;
     recompute();
   });
-  (function loop() { requestAnimationFrame(loop); controls.update(); renderer.render(scene, camera); })();
+  // Corner handles: drag to reshape the room (plan view).
+  window.addEventListener("pointermove", (e) => {
+    if (!vdrag) return;
+    aim(e);
+    const p = floorAt(); if (!p) return;
+    const pts = project.room.walls, n = pts.length, i = vdrag.i;
+    let x = Math.round(p.x / 10) * 10, z = Math.round(p.z / 10) * 10;
+    for (const q of [pts[(i + n - 1) % n], pts[(i + 1) % n]]) {
+      if (Math.abs(x - q[0]) < 60) x = q[0];
+      if (Math.abs(z - q[1]) < 60) z = q[1];
+    }
+    pts[i] = [x, z];
+    buildRoom();
+  });
+  window.addEventListener("pointerup", () => { if (vdrag) { vdrag = null; controls.enabled = true; commitRoom(); } });
+  (function loop() {
+    requestAnimationFrame(loop);
+    controls.update();
+    hideNearWalls();
+    placeOverlay();
+    renderer.render(scene, camera);
+  })();
+}
+
+// In 3D, walls between the camera and the room are hidden so the room stays visible.
+function hideNearWalls() {
+  for (const g of roomGroup.children) {
+    const w = g.userData.w; if (!w) continue;
+    if (view !== "3d") { g.visible = true; continue; }
+    const mx = w.start[0] + (w.dir[0] * w.len) / 2, mz = w.start[1] + (w.dir[1] * w.len) / 2;
+    g.visible = (camera.position.x - mx) * w.normal[0] + (camera.position.z - mz) * w.normal[1] > 0;
+  }
+}
+
+function updatePreview() {
+  const pts = drawing ? [...drawing.pts, ...(drawing.cursor ? [drawing.cursor] : [])] : [];
+  previewLine.geometry.setFromPoints(pts.map(([x, z]) => new THREE.Vector3(x, 2, z)));
+  previewLine.visible = pts.length > 1;
+}
+
+// Wall-length labels and corner handles, positioned over the canvas each frame.
+function placeOverlay() {
+  const host = $("#v-3d"), W = host.clientWidth, H = host.clientHeight, v = new THREE.Vector3();
+  for (const it of overlayItems) {
+    const on = view === "plan" && !drawing;
+    it.el.hidden = !on;
+    if (!on) continue;
+    v.copy(it.pos).project(camera);
+    it.el.style.transform = `translate(${((v.x + 1) / 2) * W}px, ${((1 - v.y) / 2) * H}px) translate(-50%, -50%)`;
+  }
+}
+
+function buildRoom() {
+  roomGroup.clear();
+  const ov = $("#overlay"); ov.replaceChildren(); overlayItems.length = 0;
+  const room = project.room;
+  const box = new THREE.BoxGeometry(1, 1, 1);
+  const th = room.thickness || 100;
+  for (const w of roomWalls(room)) {
+    const g = new THREE.Group();
+    g.userData.w = w;
+    for (const pc of wallPieces(room, w)) {
+      // extend solid pieces at the wall ends so corners close
+      const t0 = pc.t0 === 0 && !pc.glass ? -th : pc.t0, t1 = pc.t1 === w.len && !pc.glass ? w.len + th : pc.t1;
+      const len = t1 - t0, depth = pc.glass ? 8 : th, h = pc.y1 - pc.y0;
+      if (len <= 0 || h <= 0) continue;
+      const m = new THREE.Mesh(box, pc.glass ? glassMat : w.i === selWall ? wallSelMat : wallMat);
+      const [cx, cz] = wallPoint(w, (t0 + t1) / 2, -depth / 2);
+      m.scale.set(len, h, depth);
+      m.position.set(cx, pc.y0 + h / 2, cz);
+      m.rotation.y = THREE.MathUtils.degToRad(w.rotation);
+      m.userData.wall = w.i;
+      g.add(m);
+    }
+    roomGroup.add(g);
+    // length label just outside the wall
+    const [lx, lz] = wallPoint(w, w.len / 2, -th - 160);
+    const lab = h("span", { class: "wlabel" + (w.i === selWall ? " on" : ""), onclick: () => { selWall = w.i; selected = null; recompute(); } }, String(Math.round(w.len)));
+    ov.append(lab); overlayItems.push({ el: lab, pos: new THREE.Vector3(lx, 0, lz) });
+  }
+  room.walls.forEach(([x, z], i) => {
+    const hd = h("span", { class: "vhandle", title: "Drag corner" });
+    hd.addEventListener("pointerdown", (e) => { e.stopPropagation(); e.preventDefault(); vdrag = { i }; controls.enabled = false; });
+    ov.append(hd); overlayItems.push({ el: hd, pos: new THREE.Vector3(x, 0, z) });
+  });
 }
 // Cabinet-local (x, z) -> world, same convention as the Rust core and three.js.
 function toWorld(c, x, z, ox = c.x, oz = c.z, rot = c.rotation) {
@@ -566,13 +840,41 @@ function footprint(c, ox = c.x, oz = c.z, rot = c.rotation) {
   const xs = pts.map((p) => p[0]), zs = pts.map((p) => p[1]);
   return { x0: Math.min(...xs), x1: Math.max(...xs), z0: Math.min(...zs), z1: Math.max(...zs) };
 }
-// 10 mm grid, then snap the footprint's edges to walls and other cabinets within 40 mm.
+// Near a wall: turn to face the room, back against the wall, and slide
+// along it snapping to the wall ends and to cabinets on the same wall.
+// Otherwise: 10 mm grid and footprint edges to other cabinets within 40 mm.
+// Returns [x, z, rotation].
 function snap(c, x, z) {
+  const ws = roomWalls(project.room);
+  if (ws.length) {
+    const ctr = toWorld(c, c.width / 2, c.depth / 2, x, z);
+    let best = null;
+    for (const w of ws) {
+      const [t, s] = wallLocal(w, ctr[0], ctr[1]);
+      if (s < 0 || s > c.depth / 2 + 250 || t < -c.width / 2 || t > w.len + c.width / 2) continue;
+      if (!best || s < best.s) best = { w, t, s };
+    }
+    if (best) {
+      const w = best.w;
+      let t0 = Math.round((best.t - c.width / 2) / 10) * 10;
+      const ends = [0, w.len];
+      for (const o of project.cabinets) {
+        if (o === c) continue;
+        const [ot, os] = wallLocal(w, o.x, o.z);
+        if (Math.abs(os) < 2 && Math.abs(((o.rotation - w.rotation + 540) % 360) - 180) < 0.5) ends.push(ot, ot + o.width);
+      }
+      let d = null;
+      for (const e of ends) for (const edge of [t0, t0 + c.width]) {
+        const k = e - edge; if (Math.abs(k) < 40 && (d === null || Math.abs(k) < Math.abs(d))) d = k;
+      }
+      t0 += d ?? 0;
+      const [px, pz] = wallPoint(w, t0, 0);
+      return [Math.round(px * 10) / 10, Math.round(pz * 10) / 10, w.rotation];
+    }
+  }
   x = Math.round(x / 10) * 10; z = Math.round(z / 10) * 10;
   const f = footprint(c, x, z);
-  const s = project.settings, xs = [0], zs = [0];
-  if (s.room_width > 0) xs.push(s.room_width);
-  if (s.room_depth > 0) zs.push(s.room_depth);
+  const xs = [0], zs = [0];
   for (const o of project.cabinets) {
     if (o === c) continue;
     const g = footprint(o);
@@ -583,7 +885,7 @@ function snap(c, x, z) {
     for (const e of edges) for (const l of lines) if (Math.abs(l - e) < 40 && (d === null || Math.abs(l - e) < Math.abs(d))) d = l - e;
     return d ?? 0;
   };
-  return [Math.round(x + best([f.x0, f.x1], xs)), Math.round(z + best([f.z0, f.z1], zs))];
+  return [Math.round(x + best([f.x0, f.x1], xs)), Math.round(z + best([f.z0, f.z1], zs)), c.rotation];
 }
 // Rotate 90° clockwise (seen from above) about the footprint centre.
 function rotateCabinet(c) {
@@ -614,6 +916,8 @@ function mat(color, sel) {
 }
 const applianceMat = new THREE.MeshStandardMaterial({ color: 0xb9bcc0, roughness: 0.6, metalness: 0.3, transparent: true, opacity: 0.55 });
 const applianceSel = new THREE.MeshStandardMaterial({ color: 0x8fa8d8, roughness: 0.6, transparent: true, opacity: 0.6 });
+const wallSelMat = new THREE.MeshStandardMaterial({ color: 0x8fb0ea, roughness: 1, transparent: true, opacity: 0.6, depthWrite: false });
+const glassMat = new THREE.MeshStandardMaterial({ color: 0xa9cbe6, roughness: 0.1, transparent: true, opacity: 0.35, depthWrite: false });
 const wallMat = new THREE.MeshStandardMaterial({ color: 0xdedad2, roughness: 1, transparent: true, opacity: 0.45, depthWrite: false });
 const hobMat = new THREE.MeshStandardMaterial({ color: 0x151617, roughness: 0.25, metalness: 0.2 });
 const steelMat = new THREE.MeshStandardMaterial({ color: 0xc9ccd0, roughness: 0.35, metalness: 0.7 });
@@ -630,15 +934,7 @@ function updateScene() {
     root.add(g); groups.set(c.id, g);
   }
   const box = new THREE.BoxGeometry(1, 1, 1), edges = new THREE.EdgesGeometry(box);
-  const rs = project.settings;
-  if (rs.room_width > 0 && rs.room_height > 0) {
-    const t = 100, W = rs.room_width, D = rs.room_depth || 3000, H = rs.room_height;
-    for (const [x, z, sx, sz] of [[-t, -t, W + 2 * t, t], [-t, 0, t, D], [W, 0, t, D]]) {
-      const m = new THREE.Mesh(box, wallMat);
-      m.scale.set(sx, H, sz); m.position.set(x + sx / 2, H / 2, z + sz / 2);
-      root.add(m);
-    }
-  }
+  buildRoom();
   for (const ph of report.build.placeholders || []) {
     const g = groups.get(ph.cabinet); if (!g) continue;
     const [x, y, z] = ph.box3d.pos, [sx, sy, sz] = ph.box3d.size;
@@ -674,10 +970,19 @@ function updateScene() {
     }
   }
   if (!framed) { frame(); framed = true; }
+  const sc = selected && project.cabinets.find((c) => c.id === selected);
+  if (sc && groups.get(sc.id) && view !== "front") {
+    const [hx, hz] = toWorld(sc, sc.width / 2, sc.depth);
+    gizmoProxy.position.set(hx, sc.elevation, hz);
+    gizmoProxy.rotation.set(0, THREE.MathUtils.degToRad(sc.rotation), 0);
+    gizmo.attach(gizmoProxy);
+    gizmo.showY = view !== "plan";
+  } else gizmo.detach();
 }
 function frame() {
-  const b = new THREE.Box3().setFromObject(root);
-  if (b.isEmpty()) return;
+  // Fit cabinets and walls; an empty project frames a 4 x 3 m floor.
+  const b = new THREE.Box3().setFromObject(root).union(new THREE.Box3().setFromObject(roomGroup));
+  if (b.isEmpty()) b.set(new THREE.Vector3(0, 0, 0), new THREE.Vector3(4000, 2400, 3000));
   const c = b.getCenter(new THREE.Vector3()), size = b.getSize(new THREE.Vector3()), s = size.length();
   controls.target.copy(c);
   if (view === "3d") {
@@ -695,13 +1000,27 @@ function frame() {
   }
   camera.updateProjectionMatrix();
 }
+function renderPlanTools() {
+  const el = $("#plantools"); if (!el) return;
+  el.replaceChildren();
+  el.hidden = view !== "plan";
+  if (drawing) {
+    el.append(
+      h("button", { class: "pri", disabled: drawing.pts.length < 3, onclick: finishDrawing }, "Finish"),
+      h("button", { onclick: () => { drawing = null; recompute(); } }, "Cancel"));
+  } else {
+    el.append(h("button", { onclick: startDrawing }, "Draw room"), h("button", { onclick: rectangleRoom }, "Rectangle"));
+  }
+}
 function setView(v) {
   view = v;
   camera = v === "3d" ? persp : ortho;
   controls.object = camera;
+  gizmo.camera = camera;
   controls.enableRotate = v === "3d";
   controls.mouseButtons.LEFT = v === "3d" ? THREE.MOUSE.ROTATE : THREE.MOUSE.PAN;
   $$("#views button").forEach((b) => b.classList.toggle("on", b.dataset.view === v));
+  renderPlanTools();
   frame();
   controls.update();
 }
@@ -714,7 +1033,7 @@ async function main() {
   selected = null;
 
   renderPalette();
-  $("#projbtn").onclick = () => { selected = null; recompute(); };
+  $("#projbtn").onclick = () => { selected = null; selWall = null; recompute(); };
   $("#new").onclick = () => { project = JSON.parse(cw.sample_project()); project.cabinets = []; project.name = "Untitled"; selected = null; recompute(); };
   $("#sample").onclick = () => { project = JSON.parse(cw.sample_project()); selected = null; framed = false; recompute(); };
   $("#open").onclick = () => $("#file").click();
@@ -729,21 +1048,43 @@ async function main() {
   $("#csv").onclick = () => saveFile(slug(project.name) + "_cutlist.csv", cw.export_one(JSON.stringify(project), "cutlist", 0));
   $("#labels").onclick = () => saveFile(slug(project.name) + "_labels.csv", cw.export_one(JSON.stringify(project), "labels", 0));
   $("#obj").onclick = () => saveFile(slug(project.name) + ".obj", cw.export_one(JSON.stringify(project), "obj", 0));
-  $$("#tabs button").forEach((b) => (b.onclick = () => { tab = b.dataset.tab; renderTab(); }));
+  $$("#tabs button[data-tab]").forEach((b) => (b.onclick = () => { tab = b.dataset.tab; renderTab(); }));
   $("#fronts").onchange = (e) => { showFronts = e.target.checked; updateScene(); };
   $("#fit").onclick = frame;
   $$("#views button").forEach((b) => (b.onclick = () => setView(b.dataset.view)));
   $("#undo").onclick = undo;
   $("#redo").onclick = redo;
   addEventListener("keydown", (e) => {
-    if (e.target.matches("input,select,textarea")) return;
     const mod = e.ctrlKey || e.metaKey;
+    // In the coordinate boxes, undo/redo means the model, not the typed text.
+    if (e.target.closest?.("#dial") && mod && /^[zy]$/i.test(e.key)) {
+      e.preventDefault(); e.target.blur();
+      (e.key.toLowerCase() === "y" || e.shiftKey) ? redo() : undo();
+      return;
+    }
+    if (e.target.matches("input,select,textarea")) return;
     if (mod && e.key.toLowerCase() === "z") { e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
     if (mod && e.key.toLowerCase() === "y") { e.preventDefault(); redo(); return; }
     if ((e.key === "Delete" || e.key === "Backspace") && selected) {
       project.cabinets = project.cabinets.filter((c) => c.id !== selected); selected = null; recompute();
     }
-    if (e.key === "Escape") { selected = null; recompute(); }
+    if (drawing && e.key === "Enter") { finishDrawing(); return; }
+    if (drawing && e.key === "Escape") { drawing = null; updatePreview(); recompute(); return; }
+    if (drawing && e.key === "Backspace") { drawing.pts.pop(); updatePreview(); renderPlanTools(); return; }
+    if (e.key === "Escape") { selected = null; selWall = null; recompute(); }
+    if (selected && e.key.startsWith("Arrow") && tab === "3d") {
+      const c = project.cabinets.find((c) => c.id === selected);
+      if (c) {
+        e.preventDefault();
+        const step = e.shiftKey ? 100 : 10;
+        // screen directions: in Plan, up is -z; in 3D and Front, up/down move the height
+        const [dx, dy] = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, 1], ArrowDown: [0, -1] }[e.key];
+        c.x += dx * step;
+        if (view === "plan") c.z -= dy * step; else c.elevation = Math.max(0, c.elevation + dy * step);
+        recompute();
+        return;
+      }
+    }
     if (e.key.toLowerCase() === "r" && !mod && selected) {
       const c = project.cabinets.find((c) => c.id === selected); if (c) rotateCabinet(c);
     }
@@ -752,6 +1093,17 @@ async function main() {
   setup3d();
   recompute();
   resize();
+
+  // Read-only hook for scripts, agents and tests.
+  window.ezCarpentry = {
+    get project() { return JSON.parse(JSON.stringify(project)); },
+    get selected() { return selected; },
+    get view() { return view; },
+    worldToScreen(x, y, z) {
+      const r = renderer.domElement.getBoundingClientRect(), v = new THREE.Vector3(x, y, z).project(camera);
+      return { x: r.left + ((v.x + 1) / 2) * r.width, y: r.top + ((1 - v.y) / 2) * r.height };
+    },
+  };
 
   if (isHosted()) {
     window.claude.use("downloads").then((d) => { downloads = d; }).catch(() => {});
