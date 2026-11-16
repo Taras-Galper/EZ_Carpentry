@@ -24,6 +24,11 @@ aside{background:var(--panel);overflow:auto;min-height:0}
 #palette button{display:flex;flex-direction:column;align-items:center;gap:2px;padding:5px 0 4px;font-size:10px;letter-spacing:-.01em;color:var(--mute);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 #palette button:hover{color:var(--ink);background:#f3f1ec}
 #palette svg{display:block}
+#roombar{display:grid;grid-template-columns:1fr 1fr;gap:4px;padding:8px 6px 0}
+#roombar button{display:flex;align-items:center;justify-content:center;gap:6px;padding:4px 6px;font-size:12px;color:var(--ink)}
+#roombar button svg{display:block;flex:none}
+#roombar button.pri{color:#fff}
+#v-3d.drawing canvas{cursor:crosshair}
 #list li{display:grid;grid-template-columns:34px 1fr;grid-template-rows:auto auto;padding:6px 8px;border-radius:6px;cursor:pointer;column-gap:6px}
 #list li b{grid-row:span 2;font-variant-numeric:tabular-nums;color:var(--mute);font-weight:600}
 #list li em{font-style:normal;color:var(--mute);font-size:12px;font-variant-numeric:tabular-nums}
@@ -56,6 +61,7 @@ figcaption{display:flex;gap:6px;align-items:center;padding:6px 8px;border-top:1p
 #tabs #views button{border:none;border-radius:0;padding:4px 10px;color:var(--mute)}
 #tabs #views button.on{background:var(--ink);color:#fff}
 #overlay{position:absolute;inset:0;pointer-events:none;overflow:hidden;z-index:1}
+#drawsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:1}
 .wlabel{position:absolute;left:0;top:0;pointer-events:auto;cursor:pointer;background:#fff;border:1px solid var(--line);border-radius:4px;padding:1px 6px;font-size:12px;font-variant-numeric:tabular-nums}
 .wlabel.on{background:var(--acc);border-color:var(--acc);color:#fff}
 .vhandle{position:absolute;left:0;top:0;width:12px;height:12px;background:#fff;border:2px solid var(--acc);border-radius:2px;pointer-events:auto;cursor:move}
@@ -109,7 +115,7 @@ footer#status{display:flex;gap:16px;padding:6px 12px;border-top:1px solid var(--
   <button id="zip" class="pri">Export CNC</button>
 </header>
 <main>
-  <aside id="left"><div id="palette"></div><button id="projbtn">Project &amp; materials</button><ul id="list"></ul></aside>
+  <aside id="left"><div id="roombar"></div><div id="palette"></div><button id="projbtn">Project &amp; materials</button><ul id="list"></ul></aside>
   <section id="center">
     <nav id="tabs">
       <button data-tab="3d">3D</button><button data-tab="parts">Parts</button><button data-tab="sheets">Sheets</button><button data-tab="hw">Hardware</button><button data-tab="drawings">Drawings</button><button data-tab="quote">Quote</button>
@@ -119,7 +125,7 @@ footer#status{display:flex;gap:16px;padding:6px 12px;border-top:1px solid var(--
       <label><input id="fronts" type="checkbox" checked>Fronts</label>
       <button id="fit">Fit</button>
     </nav>
-    <div class="view" id="v-3d"><div id="overlay"></div><div id="plantools" hidden></div>
+    <div class="view" id="v-3d"><div id="overlay"></div><svg id="drawsvg"></svg><div id="plantools" hidden></div>
       <div id="dial" hidden title="Type a value, or +n / -n to move by n">
         <label>X<input data-k="x" inputmode="decimal"></label><label>Y<input data-k="y" inputmode="decimal"></label><label>Z<input data-k="z" inputmode="decimal"></label><label>↻<input data-k="r" inputmode="decimal"></label>
       </div></div>

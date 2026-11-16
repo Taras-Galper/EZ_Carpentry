@@ -778,15 +778,35 @@ function hideNearWalls() {
   }
 }
 
+// The room being drawn is an SVG over the canvas, so it is never hidden by cabinets or walls.
 function updatePreview() {
-  const pts = drawing ? [...drawing.pts, ...(drawing.cursor ? [drawing.cursor] : [])] : [];
-  previewLine.geometry.setFromPoints(pts.map(([x, z]) => new THREE.Vector3(x, 2, z)));
-  previewLine.visible = pts.length > 1;
+  previewLine.visible = false;
+  placeOverlay();
+}
+function drawPreview(toScreen) {
+  const svg = $("#drawsvg");
+  if (!svg) return;
+  if (!drawing) { if (svg.innerHTML) svg.innerHTML = ""; return; }
+  const pts = drawing.pts.map(([x, z]) => toScreen(x, z));
+  const cur = drawing.cursor && toScreen(drawing.cursor[0], drawing.cursor[1]);
+  const all = cur ? [...pts, cur] : pts;
+  const closing = drawing.cursor && drawing.pts.length >= 3 && drawing.cursor === drawing.pts[0];
+  let out = "";
+  if (all.length > 1) out += `<polyline points="${all.map((p) => `${p.x},${p.y}`).join(" ")}" fill="none" stroke="#2f6fe4" stroke-width="2.5"/>`;
+  pts.forEach((p, i) => { out += `<circle cx="${p.x}" cy="${p.y}" r="${i === 0 ? (closing ? 9 : 6) : 4}" fill="${i === 0 ? "#fff" : "#2f6fe4"}" stroke="#2f6fe4" stroke-width="2"/>`; });
+  if (cur && pts.length) {
+    const last = drawing.pts.at(-1), L = Math.round(Math.hypot(drawing.cursor[0] - last[0], drawing.cursor[1] - last[1]));
+    out += `<g transform="translate(${cur.x + 12},${cur.y - 12})"><rect x="0" y="-15" width="${String(L).length * 8 + 12}" height="20" rx="4" fill="#2f6fe4"/><text x="6" y="0" fill="#fff" font-size="12" font-family="system-ui">${L}</text></g>`;
+  } else if (cur) {
+    out += `<circle cx="${cur.x}" cy="${cur.y}" r="4" fill="#2f6fe4"/>`;
+  }
+  svg.innerHTML = out;
 }
 
 // Wall-length labels and corner handles, positioned over the canvas each frame.
 function placeOverlay() {
   const host = $("#v-3d"), W = host.clientWidth, H = host.clientHeight, v = new THREE.Vector3();
+  drawPreview((x, z) => { v.set(x, 0, z).project(camera); return { x: ((v.x + 1) / 2) * W, y: ((1 - v.y) / 2) * H }; });
   for (const it of overlayItems) {
     const on = view === "plan" && !drawing;
     it.el.hidden = !on;
@@ -1000,16 +1020,32 @@ function frame() {
   }
   camera.updateProjectionMatrix();
 }
+// Room tools: always at the top of the left panel; Finish / Cancel also
+// float on the canvas while drawing.
+const ROOM_ICONS = {
+  draw: '<path d="M4 26 V8 H16 V17 H25 V26 Z" fill="none"/><circle cx="4" cy="26" r="2" class="k"/><circle cx="4" cy="8" r="2" class="k"/><circle cx="16" cy="8" r="2" class="k"/><circle cx="16" cy="17" r="2" class="k"/><circle cx="25" cy="17" r="2" class="k"/>',
+  rect: '<rect x="4" y="7" width="20" height="19" fill="none"/><circle cx="4" cy="7" r="2" class="k"/><circle cx="24" cy="7" r="2" class="k"/><circle cx="24" cy="26" r="2" class="k"/><circle cx="4" cy="26" r="2" class="k"/>',
+};
+function iconButton(label, icon, onclick, cls = "") {
+  const b = h("button", { class: cls, onclick });
+  b.innerHTML = `<svg width="28" height="30" viewBox="0 0 28 32" stroke="currentColor" stroke-width="1.5"><style>.k{fill:currentColor;stroke:none}</style>${icon}</svg>`;
+  b.append(label);
+  return b;
+}
 function renderPlanTools() {
-  const el = $("#plantools"); if (!el) return;
-  el.replaceChildren();
-  el.hidden = view !== "plan";
+  const bar = $("#roombar"), el = $("#plantools");
+  bar.replaceChildren(); el.replaceChildren();
+  $("#v-3d").classList.toggle("drawing", !!drawing);
+  el.hidden = !drawing;
   if (drawing) {
-    el.append(
-      h("button", { class: "pri", disabled: drawing.pts.length < 3, onclick: finishDrawing }, "Finish"),
-      h("button", { onclick: () => { drawing = null; recompute(); } }, "Cancel"));
+    const finish = () => h("button", { class: "pri", disabled: drawing.pts.length < 3, onclick: finishDrawing }, "Finish");
+    const cancel = () => h("button", { onclick: () => { drawing = null; updatePreview(); recompute(); } }, "Cancel");
+    bar.append(finish(), cancel());
+    el.append(finish(), cancel());
   } else {
-    el.append(h("button", { onclick: startDrawing }, "Draw room"), h("button", { onclick: rectangleRoom }, "Rectangle"));
+    bar.append(
+      iconButton("Draw room", ROOM_ICONS.draw, startDrawing, "room"),
+      iconButton("Rectangle", ROOM_ICONS.rect, rectangleRoom, "room"));
   }
 }
 function setView(v) {
