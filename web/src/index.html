@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EZ Carpentry</title>
+<style>
+:root{--bg:#faf9f6;--panel:#fff;--line:#e3dfd6;--ink:#1f1d1a;--mute:#7a746a;--acc:#2f6fe4;--warn:#b5481b;font:13px/1.35 system-ui,-apple-system,"Segoe UI",sans-serif;color:var(--ink);background:var(--bg)}
+*{box-sizing:border-box}[hidden]{display:none!important}body{margin:0;height:100vh;display:grid;grid-template-rows:auto 1fr auto;overflow:hidden}
+header{display:flex;gap:6px;align-items:center;padding:8px 12px;border-bottom:1px solid var(--line);background:var(--panel);flex-wrap:wrap}
+header .logo{font-weight:700;letter-spacing:.02em;margin-right:10px}
+header .sp{flex:1}
+button,select,input{font:inherit;color:inherit}
+button{border:1px solid var(--line);background:#fff;border-radius:6px;padding:5px 10px;cursor:pointer}
+button:hover{border-color:#bdb7ab}button.pri{background:var(--acc);border-color:var(--acc);color:#fff}
+button.danger{color:var(--warn)}
+header select{border:1px solid var(--line);border-radius:6px;padding:5px 8px;background:#fff}
+main{display:grid;grid-template-columns:220px 1fr 300px;min-height:0}
+aside{background:var(--panel);overflow:auto;min-height:0}
+#left{border-right:1px solid var(--line);display:flex;flex-direction:column}
+#right{border-left:1px solid var(--line);padding:10px 12px}
+#list{list-style:none;margin:0;padding:6px;flex:1}
+#list li{display:grid;grid-template-columns:34px 1fr;grid-template-rows:auto auto;padding:6px 8px;border-radius:6px;cursor:pointer;column-gap:6px}
+#list li b{grid-row:span 2;font-variant-numeric:tabular-nums;color:var(--mute);font-weight:600}
+#list li em{font-style:normal;color:var(--mute);font-size:12px;font-variant-numeric:tabular-nums}
+#list li:hover{background:#f3f1ec}#list li.sel{background:#e7effd}
+#projbtn{margin:6px;text-align:left}
+#center{display:grid;grid-template-rows:auto 1fr;min-height:0;min-width:0}
+#tabs{display:flex;gap:2px;padding:6px 10px 0;border-bottom:1px solid var(--line);align-items:end}
+#tabs button{border:none;border-bottom:2px solid transparent;border-radius:0;background:none;padding:6px 12px;color:var(--mute)}
+#tabs button.on{color:var(--ink);border-bottom-color:var(--ink)}
+#tabs .sp{flex:1}#tabs label{display:flex;gap:4px;align-items:center;padding:6px;color:var(--mute)}
+.view{min-height:0;overflow:auto;position:relative}
+#v-3d{overflow:hidden}#v-3d canvas{display:block;position:absolute;inset:0}
+#v-parts{display:grid;grid-template-columns:1fr 340px}
+.tablewrap{overflow:auto}
+table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}
+th,td{padding:5px 8px;border-bottom:1px solid var(--line);text-align:left;white-space:nowrap}
+th{position:sticky;top:0;background:var(--bg);font-weight:600;color:var(--mute)}
+td.n{text-align:right}tbody tr{cursor:pointer}tbody tr:hover{background:#f3f1ec}tr.sel{background:#e7effd!important}
+.preview{border-left:1px solid var(--line);padding:12px;background:var(--panel);overflow:auto}
+.preview svg{display:block;margin:10px auto;max-width:100%}
+dl{display:grid;grid-template-columns:auto 1fr;gap:4px 10px;margin:0}dt{color:var(--mute)}dd{margin:0}
+#v-sheets{padding:12px;display:grid;grid-template-columns:repeat(auto-fill,minmax(420px,1fr));gap:14px;align-content:start;grid-auto-rows:max-content}
+figure{margin:0;background:var(--panel);border:1px solid var(--line);border-radius:8px;overflow:hidden}
+figure img{display:block;width:100%;height:auto}figure{display:flex;flex-direction:column}
+figcaption{display:flex;gap:6px;align-items:center;padding:6px 8px;border-top:1px solid var(--line)}figcaption span{flex:1}
+#v-hw{padding:12px;display:grid;grid-template-columns:1fr 1.4fr;gap:20px;align-items:start}
+table.hw tbody tr{cursor:default}
+h3{margin:14px 0 6px;font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--mute)}
+.row{display:flex;gap:6px;align-items:center}.row h3{flex:1;margin:4px 0}
+label{display:block;margin:6px 0}label>span{display:block;color:var(--mute);font-size:12px;margin-bottom:2px}
+label input,label select{width:100%;border:1px solid var(--line);border-radius:5px;padding:5px 6px;background:#fff}
+label.chk{display:flex;align-items:center;gap:8px;margin-top:22px}label.chk span{margin:0;order:2}label.chk input{width:auto}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:0 8px}.grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:0 8px}
+.mat{border-top:1px solid var(--line);padding-top:4px}
+footer#status{display:flex;gap:16px;padding:6px 12px;border-top:1px solid var(--line);background:var(--panel);color:var(--mute);overflow:auto;white-space:nowrap}
+.warn{color:var(--warn)}
+#toast{position:fixed;bottom:40px;left:50%;transform:translate(-50%,20px);background:#222;color:#fff;padding:8px 14px;border-radius:6px;opacity:0;transition:.2s;pointer-events:none}
+#toast.on{opacity:1;transform:translate(-50%,0)}
+.fatal{padding:20px;color:var(--warn);white-space:pre-wrap}
+@media (max-width:900px){main{grid-template-columns:1fr;grid-template-rows:auto 60vh auto;overflow:auto}#left,#right{border:none}#v-parts{grid-template-columns:1fr}body{overflow:auto;height:auto}}
+</style>
+</head>
+<body>
+<header>
+  <span class="logo">EZ Carpentry</span>
+  <button id="new">New</button>
+  <button id="sample">Sample</button>
+  <button id="open">Open</button>
+  <button id="save">Save</button>
+  <input id="file" type="file" accept=".json,application/json" hidden>
+  <select id="add"><option value="">+ Cabinet</option><option>Base</option><option>Drawers</option><option>Wall</option><option>Tall</option></select>
+  <span class="sp"></span>
+  <button id="csv">Cut list</button>
+  <button id="obj">OBJ</button>
+  <button id="zip" class="pri">Export CNC</button>
+</header>
+<main>
+  <aside id="left"><button id="projbtn">Project &amp; materials</button><ul id="list"></ul></aside>
+  <section id="center">
+    <nav id="tabs">
+      <button data-tab="3d">3D</button><button data-tab="parts">Parts</button><button data-tab="sheets">Sheets</button><button data-tab="hw">Hardware</button>
+      <span class="sp"></span>
+      <label><input id="fronts" type="checkbox" checked>Fronts</label>
+      <button id="fit">Fit</button>
+    </nav>
+    <div class="view" id="v-3d"></div>
+    <div class="view" id="v-parts" hidden></div>
+    <div class="view" id="v-sheets" hidden></div>
+    <div class="view" id="v-hw" hidden></div>
+  </section>
+  <aside id="right"><div id="props"></div></aside>
+</main>
+<footer id="status"></footer>
+<div id="toast"></div>
+<script>/*BUNDLE*/</script>
+</body>
+</html>

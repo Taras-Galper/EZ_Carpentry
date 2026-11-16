@@ -1,0 +1,71 @@
+# EZ Carpentry
+
+Parametric cabinet design → cut list → CNC files. A Cabinet Vision–style tool with a Rust core
+that runs natively (CLI) and in the browser (WebAssembly, with a pure-JS fallback).
+
+```
+crates/core   model, part generation, System-32 boring, MaxRects nesting, exporters
+crates/cli    `casework` command line
+crates/wasm   browser bindings
+web/          editor: 3D view, parts, sheets, hardware → web/dist/index.html (one file, works offline)
+examples/     kitchen.json
+```
+
+## Online
+
+GitHub Pages: https://taras-galper.github.io/EZ_Carpentry/ (enable Settings → Pages → Source: GitHub Actions).
+`web/dist/index.html` is the same app as one file; it also works opened locally.
+
+## Downloads
+
+Every push builds `casework` for Windows, Linux and macOS: Actions → latest run → Artifacts.
+
+## Build
+
+```
+./build.sh
+```
+
+## CLI
+
+```
+casework sample > kitchen.json
+casework summary kitchen.json
+casework export kitchen.json -o out/          # folder of files
+casework export kitchen.json --zip kitchen.zip
+```
+
+## Exports
+
+| File | Contents |
+|---|---|
+| `project.json` | Full project; reopen in the editor or feed to the CLI |
+| `cutlist.csv` | Cabinet, part, material, thickness, length (with grain), width, qty, edge banding L1 L2 W1 W2, bores |
+| `hardware.csv` | Hinges, slides, shelf pins, handles per cabinet + totals |
+| `parts/*.dxf` | One DXF R12 per part, inside face up, 1 unit = 1 mm |
+| `sheets/*.dxf` | Nested sheet layouts, ready for CAM |
+| `sheets/*.svg` | Printable sheet layouts |
+| `model.obj` | 3D model of all parts (mm, Y up) |
+
+DXF layers (map these to tools/depths in AlphaCAM or any CAM):
+
+| Layer | Meaning |
+|---|---|
+| `OUTLINE` | Part profile, cut through |
+| `DRILL_D5_Z12` | Ø5 bore, 12 deep (shelf pins, hinge plates, slides) |
+| `DRILL_D35_Z13` | Ø35 hinge cup, 13 deep |
+| `DRILL_D7_THRU` | Ø7 through (confirmat), `DRILL_D5_THRU` handle holes |
+| `SHEET` | Sheet boundary (sheet files) |
+| `LABEL` | Part names (sheet files) |
+
+## Construction rules
+
+Frameless / System 32, applied back, full-overlay fronts.
+
+- Sides full height (toe-kick notch on base/tall), bottom and top between sides; base cabinets get two 100 mm top rails.
+- Back = full width × (height − toe kick), applied to the rear; sides and shelves are shortened by its thickness.
+- Drawer fronts stack from the top using the heights you list; doors fill the rest (0, 1 or 2 leaves).
+- Hinges: 2 up to 900 mm, 3 to 1600, 4 to 2000, then 5; cups at the hinge-cup inset, plates on the system line.
+- Slides: longest of 250–550 mm that fits; drawer box = interior − 2 × slide clearance.
+- Shelf-pin rows at the system line from front and back, 32 mm pitch; shelves snap to the nearest row.
+- Nesting: MaxRects best-short-side-fit with kerf and trim; grained materials keep grain along the sheet length.
