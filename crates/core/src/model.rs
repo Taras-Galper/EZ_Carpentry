@@ -40,6 +40,11 @@ pub struct Settings {
     pub shaker_frame: f64,
     /// Shaker panel groove depth (also the rail tenon length).
     pub shaker_groove: f64,
+    /// Room shown in 3D: back wall at z = 0, side walls at x = 0 and
+    /// x = room_width. 0 = no room.
+    pub room_width: f64,
+    pub room_depth: f64,
+    pub room_height: f64,
 }
 
 impl Default for Settings {
@@ -58,6 +63,9 @@ impl Default for Settings {
             worktop_overhang: 20.0,
             shaker_frame: 60.0,
             shaker_groove: 8.0,
+            room_width: 0.0,
+            room_depth: 0.0,
+            room_height: 0.0,
         }
     }
 }
@@ -107,6 +115,15 @@ pub enum DoorStyle {
     Shaker,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum BlindSide {
+    #[default]
+    None,
+    Left,
+    Right,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum HingeSide {
@@ -136,6 +153,10 @@ pub struct Cabinet {
     pub doors: u32,
     pub hinge_side: HingeSide,
     pub door_style: DoorStyle,
+    /// Blind corner: this side of the front is a fixed panel that the
+    /// perpendicular run covers; the door fills the rest.
+    pub blind_side: BlindSide,
+    pub blind_width: f64,
     /// Drawer front heights, top to bottom. Doors fill what remains.
     pub drawers: Vec<f64>,
     pub shelves: u32,
@@ -166,6 +187,8 @@ impl Default for Cabinet {
             doors: 1,
             hinge_side: HingeSide::Left,
             door_style: DoorStyle::Slab,
+            blind_side: BlindSide::None,
+            blind_width: 600.0,
             drawers: vec![],
             shelves: 1,
             carcass_material: "carcass".into(),
@@ -235,7 +258,8 @@ pub fn default_materials() -> Vec<Material> {
     ]
 }
 
-/// A small L-free kitchen run used as the starting project.
+/// L-shaped sample kitchen: tall + drawers + sink + blind corner along
+/// the back wall, a return leg along the right wall, wall units above.
 pub fn sample_kitchen() -> Project {
     let base = |id: &str, name: &str, w: f64| Cabinet {
         id: id.into(),
@@ -243,6 +267,26 @@ pub fn sample_kitchen() -> Project {
         width: w,
         ..Cabinet::default()
     };
+    let wall = |id: &str, w: f64| Cabinet {
+        id: id.into(),
+        name: "Wall".into(),
+        kind: CabinetKind::Wall,
+        width: w,
+        height: 720.0,
+        depth: 320.0,
+        elevation: 1450.0,
+        toe_kick_height: 0.0,
+        shelves: 2,
+        ..Cabinet::default()
+    };
+    let room_w = 3200.0;
+    let s = Settings {
+        room_width: room_w,
+        room_depth: 2600.0,
+        room_height: 2600.0,
+        ..Settings::default()
+    };
+    let top_depth = 560.0 + s.worktop_overhang;
     let mut cabs = vec![
         Cabinet {
             id: "t1".into(),
@@ -255,60 +299,13 @@ pub fn sample_kitchen() -> Project {
             shelves: 5,
             ..Cabinet::default()
         },
+        Cabinet { doors: 0, drawers: vec![180.0, 300.0, 290.0], shelves: 0, ..base("b1", "Drawer base", 600.0) },
+        Cabinet { doors: 2, shelves: 0, ..base("b2", "Sink base", 800.0) },
         Cabinet {
-            doors: 0,
-            drawers: vec![180.0, 300.0, 290.0],
-            shelves: 0,
-            ..base("b1", "Drawer base", 600.0)
-        },
-        Cabinet {
-            doors: 2,
-            shelves: 0,
-            ..base("b2", "Sink base", 800.0)
-        },
-        Cabinet {
-            drawers: vec![160.0],
-            ..base("b3", "Base", 450.0)
-        },
-    ];
-    let mut walls = vec![
-        Cabinet {
-            id: "w1".into(),
-            name: "Wall".into(),
-            kind: CabinetKind::Wall,
-            width: 600.0,
-            height: 720.0,
-            depth: 320.0,
-            elevation: 1450.0,
-            toe_kick_height: 0.0,
-            shelves: 2,
-            ..Cabinet::default()
-        },
-        Cabinet {
-            id: "w2".into(),
-            name: "Wall".into(),
-            kind: CabinetKind::Wall,
-            width: 800.0,
-            height: 720.0,
-            depth: 320.0,
-            elevation: 1450.0,
-            toe_kick_height: 0.0,
-            doors: 2,
-            shelves: 2,
-            ..Cabinet::default()
-        },
-        Cabinet {
-            id: "w3".into(),
-            name: "Wall".into(),
-            kind: CabinetKind::Wall,
-            width: 450.0,
-            height: 720.0,
-            depth: 320.0,
-            elevation: 1450.0,
-            toe_kick_height: 0.0,
-            hinge_side: HingeSide::Right,
-            shelves: 2,
-            ..Cabinet::default()
+            blind_side: BlindSide::Right,
+            blind_width: top_depth + 20.0,
+            drawers: vec![],
+            ..base("b3", "Blind corner", 1200.0)
         },
     ];
     let mut x = 0.0;
@@ -316,18 +313,29 @@ pub fn sample_kitchen() -> Project {
         c.x = x;
         x += c.width;
     }
-    let mut x = 600.0;
-    for c in walls.iter_mut() {
-        c.x = x;
-        x += c.width;
+    // Return leg on the right wall, facing -x; starts where the back worktop ends.
+    let mut z = top_depth;
+    for c in [
+        Cabinet { drawers: vec![160.0], ..base("b4", "Base", 450.0) },
+        Cabinet { doors: 0, drawers: vec![180.0, 300.0, 290.0], shelves: 0, ..base("b5", "Drawer base", 600.0) },
+    ] {
+        cabs.push(Cabinet { x: room_w, z, rotation: -90.0, ..c });
+        z += cabs.last().map(|c| c.width).unwrap_or(0.0);
     }
-    cabs.append(&mut walls);
+    let mut x = 600.0;
+    for (id, w) in [("w1", 600.0), ("w2", 800.0), ("w3", 600.0)] {
+        cabs.push(Cabinet { x, ..wall(id, w) });
+        x += w;
+    }
+    if let Some(w3) = cabs.iter_mut().find(|c| c.id == "w3") {
+        w3.hinge_side = HingeSide::Right;
+    }
     for c in cabs.iter_mut() {
         c.door_style = DoorStyle::Shaker;
     }
     Project {
         name: "Kitchen".into(),
-        settings: Settings::default(),
+        settings: s,
         materials: default_materials(),
         cabinets: cabs,
     }

@@ -254,63 +254,144 @@ fn shaker_pieces(p: Part, f: f64, g: f64, pm: &Material) -> Vec<Part> {
     out
 }
 
-/// One worktop per straight run of touching base cabinets.
+/// Cabinet-local (x, z) -> world (x, z) for a cabinet at `o` rotated `deg` about y.
+pub fn to_world(ox: f64, oz: f64, deg: f64, x: f64, z: f64) -> (f64, f64) {
+    let (sn, cs) = deg.to_radians().sin_cos();
+    (ox + x * cs + z * sn, oz - x * sn + z * cs)
+}
+
+fn to_local(ox: f64, oz: f64, deg: f64, wx: f64, wz: f64) -> (f64, f64) {
+    let (sn, cs) = deg.to_radians().sin_cos();
+    let (dx, dz) = (wx - ox, wz - oz);
+    (dx * cs - dz * sn, dx * sn + dz * cs)
+}
+
+/// One worktop per straight run of touching base cabinets, along each
+/// cabinet's own axis (any rotation). Where an L corner makes two
+/// worktops overlap, the later one is shortened to butt against the first.
 fn build_worktops(project: &Project, out: &mut Build) {
     let s = &project.settings;
     if s.worktop_thickness <= 0.0 {
         return;
     }
     let tm = project.material("top");
-    let mut bases: Vec<&Cabinet> = project.cabinets.iter().filter(|c| c.kind == CabinetKind::Base).collect();
+    let r2 = |v: f64| (v * 2.0).round() / 2.0;
+    // (cabinet, position along its axis, offset across it)
+    let mut bases: Vec<(&Cabinet, f64, f64)> = project
+        .cabinets
+        .iter()
+        .filter(|c| c.kind == CabinetKind::Base)
+        .map(|c| {
+            let (sn, cs) = c.rotation.to_radians().sin_cos();
+            (c, c.x * cs - c.z * sn, r2(c.x * sn + c.z * cs))
+        })
+        .collect();
+    let key = |c: &Cabinet, across: f64| (r2(c.rotation.rem_euclid(360.0)), across, c.elevation, c.height);
     bases.sort_by(|a, b| {
-        (a.rotation, a.z, a.elevation, a.height, a.x)
-            .partial_cmp(&(b.rotation, b.z, b.elevation, b.height, b.x))
+        (key(a.0, a.2), a.1)
+            .partial_cmp(&(key(b.0, b.2), b.1))
             .unwrap_or(std::cmp::Ordering::Equal)
     });
-    let mut runs: Vec<Vec<&Cabinet>> = vec![];
-    for c in bases {
-        if let Some(r) = runs.last_mut() {
-            let p = r[r.len() - 1];
-            let joins = c.rotation == 0.0
-                && p.rotation == 0.0
-                && p.z == c.z
-                && p.elevation == c.elevation
-                && p.height == c.height
-                && (c.x - (p.x + p.width)).abs() < 1.0;
-            if joins {
-                r.push(c);
+    let mut runs: Vec<Vec<(&Cabinet, f64)>> = vec![];
+    let mut last_key = None;
+    for (c, along, across) in bases {
+        let k = key(c, across);
+        if let (Some(r), Some(lk)) = (runs.last_mut(), last_key) {
+            let (p, pa): (&Cabinet, f64) = r[r.len() - 1];
+            if lk == k && (along - (pa + p.width)).abs() < 1.0 {
+                r.push((c, along));
                 continue;
             }
         }
-        runs.push(vec![c]);
+        last_key = Some(k);
+        runs.push(vec![(c, along)]);
     }
-    for r in runs {
-        let first = r[0];
-        let last = r[r.len() - 1];
-        let len = last.x + last.width - first.x;
-        let depth = r.iter().map(|c| c.depth).fold(0.0, f64::max) + s.worktop_overhang;
-        let t = s.worktop_thickness;
+
+    struct Top<'a> {
+        first: &'a Cabinet,
+        ids: String,
+        start: f64,
+        len: f64,
+        depth: f64,
+    }
+    let mut tops: Vec<Top> = runs
+        .iter()
+        .map(|r| {
+            let (first, a0) = r[0];
+            let (last, a1) = r[r.len() - 1];
+            Top {
+                first,
+                ids: r.iter().map(|(c, _)| c.id.as_str()).collect::<Vec<_>>().join("+"),
+                start: 0.0,
+                len: a1 + last.width - a0,
+                depth: r.iter().map(|(c, _)| c.depth).fold(0.0, f64::max) + s.worktop_overhang,
+            }
+        })
+        .collect();
+
+    // Trim overlaps at corners: earlier (longer-established) worktop wins.
+    for j in 1..tops.len() {
+        for i in 0..j {
+            let (fi, fj) = (tops[i].first, tops[j].first);
+            if (fi.rotation - fj.rotation).rem_euclid(180.0).abs() < 1e-6 {
+                continue; // parallel runs never butt
+            }
+            // i's footprint corners in j's local frame
+            let corners = [
+                (tops[i].start, 0.0),
+                (tops[i].start + tops[i].len, 0.0),
+                (tops[i].start, tops[i].depth),
+                (tops[i].start + tops[i].len, tops[i].depth),
+            ];
+            let mut lx = (f64::MAX, f64::MIN);
+            let mut lz = (f64::MAX, f64::MIN);
+            for (x, z) in corners {
+                let (wx, wz) = to_world(fi.x, fi.z, fi.rotation, x, z);
+                let (x2, z2) = to_local(fj.x, fj.z, fj.rotation, wx, wz);
+                lx = (lx.0.min(x2), lx.1.max(x2));
+                lz = (lz.0.min(z2), lz.1.max(z2));
+            }
+            let t = &mut tops[j];
+            let (a, b) = (t.start, t.start + t.len);
+            let z_overlap = lz.1.min(t.depth) - lz.0.max(0.0);
+            let x_overlap = lx.1.min(b) - lx.0.max(a);
+            if z_overlap <= 0.5 || x_overlap <= 0.5 {
+                continue;
+            }
+            if lx.0 <= a + 0.5 {
+                t.start = lx.1.min(b);
+            } else if lx.1 >= b - 0.5 {
+                t.len = lx.0 - a;
+                continue;
+            }
+            t.len = b - t.start;
+        }
+    }
+
+    for t in tops {
+        if t.len < 50.0 {
+            continue;
+        }
+        let th = s.worktop_thickness;
         out.parts.push(Part {
-            id: format!("{}-worktop", first.id),
-            cabinet: first.id.clone(),
+            id: format!("{}-worktop", t.first.id),
+            cabinet: t.first.id.clone(),
             name: "Worktop".into(),
             role: Role::Worktop,
             material: tm.id.clone(),
-            thickness: t,
-            w: r1(len),
-            h: r1(depth),
+            thickness: th,
+            w: r1(t.len),
+            h: r1(t.depth),
             grain_y: false,
             edges: [true, false, false, false],
-            outline: rect(r1(len), r1(depth)),
+            outline: rect(r1(t.len), r1(t.depth)),
             holes: vec![],
-            box3d: Box3 { pos: [0.0, first.height, 0.0], size: [len, t, depth] },
+            box3d: Box3 { pos: [t.start, t.first.height, 0.0], size: [t.len, th, t.depth] },
         });
-        if len > tm.sheet_length - 2.0 * s.sheet_trim {
+        if t.len > tm.sheet_length - 2.0 * s.sheet_trim {
             out.warnings.push(format!(
                 "Worktop over {} is {:.0} mm, longer than the {} blank",
-                r.iter().map(|c| c.id.as_str()).collect::<Vec<_>>().join("+"),
-                len,
-                tm.name
+                t.ids, t.len, tm.name
             ));
         }
     }
@@ -439,12 +520,24 @@ fn build_cabinet(project: &Project, cab: &Cabinet, out: &mut Build) {
     let g = s.front_gap;
     let ft = fm.thickness;
     let mut cursor = h;
+    // Blind corner: open part of the front is [ox0, ox1].
+    let blind = cab.blind_side != BlindSide::None;
+    let bw = cab.blind_width.clamp(0.0, w - 150.0);
+    let (ox0, ox1) = match cab.blind_side {
+        BlindSide::Left => (bw, w),
+        BlindSide::Right => (0.0, w - bw),
+        BlindSide::None => (0.0, w),
+    };
+    if blind && !cab.drawers.is_empty() {
+        cx.warn("drawers are not built in blind corner cabinets");
+    }
+    let drawers: &[f64] = if blind { &[] } else { &cab.drawers };
     let slide_len = SLIDE_LENGTHS
         .iter()
         .rev()
         .copied()
         .find(|l| *l <= cd - 10.0);
-    for (i, &dh) in cab.drawers.iter().enumerate() {
+    for (i, &dh) in drawers.iter().enumerate() {
         let lo = (cursor - dh).max(toe);
         let fh = cursor - lo - g;
         if fh < 60.0 {
@@ -546,17 +639,36 @@ fn build_cabinet(project: &Project, cab: &Cabinet, out: &mut Build) {
     let zone_hi = cursor;
     if cab.doors > 0 && zone_hi - zone_lo > 100.0 {
         let fh = zone_hi - zone_lo - g;
-        let leaves: Vec<(f64, f64, HingeSide)> = if cab.doors >= 2 {
-            let lw = w / 2.0 - g;
+        let ow = ox1 - ox0;
+        let leaves: Vec<(f64, f64, HingeSide)> = if blind {
+            // One leaf, hinged on the cabinet side away from the blind panel.
+            let side = if cab.blind_side == BlindSide::Left { HingeSide::Right } else { HingeSide::Left };
+            vec![(ox0 + g / 2.0, ow - g, side)]
+        } else if cab.doors >= 2 {
+            let lw = ow / 2.0 - g;
             vec![
-                (g / 2.0, lw, HingeSide::Left),
-                (w / 2.0 + g / 2.0, lw, HingeSide::Right),
+                (ox0 + g / 2.0, lw, HingeSide::Left),
+                (ox0 + ow / 2.0 + g / 2.0, lw, HingeSide::Right),
             ]
         } else {
-            vec![(g / 2.0, w - g, cab.hinge_side)]
+            vec![(ox0 + g / 2.0, ow - g, cab.hinge_side)]
         };
         if cab.doors > 2 {
             cx.warn("more than 2 doors not supported, using 2");
+        }
+        if blind {
+            let (bx0, bx1) = if cab.blind_side == BlindSide::Left { (0.0, ox0) } else { (ox1, w) };
+            cx.part(
+                "blind",
+                "Blind panel",
+                Role::Front,
+                &fm,
+                bx1 - bx0 - g,
+                fh,
+                true,
+                [true; 4],
+                Box3 { pos: [bx0 + g / 2.0, zone_lo + g / 2.0, d], size: [bx1 - bx0 - g, fh, ft] },
+            );
         }
         let hy = hinge_positions(fh);
         for (n, (x0, fw, side)) in leaves.into_iter().enumerate() {

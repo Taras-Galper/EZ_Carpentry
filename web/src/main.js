@@ -120,15 +120,18 @@ const PRESETS = {
   Base: () => ({ kind: "base", name: "Base", width: 600, height: 870, depth: 560, toe_kick_height: 100, toe_kick_depth: 60, doors: 1, drawers: [160], shelves: 1 }),
   Drawers: () => ({ kind: "base", name: "Drawer base", width: 600, height: 870, depth: 560, toe_kick_height: 100, toe_kick_depth: 60, doors: 0, drawers: [180, 300, 290], shelves: 0 }),
   Wall: () => ({ kind: "wall", name: "Wall", width: 600, height: 720, depth: 320, elevation: 1450, toe_kick_height: 0, doors: 1, drawers: [], shelves: 2 }),
+  Corner: () => ({ kind: "base", name: "Blind corner", width: 1200, height: 870, depth: 560, toe_kick_height: 100, toe_kick_depth: 60, doors: 1, drawers: [], shelves: 1, blind_side: "right", blind_width: 600 }),
   Tall: () => ({ kind: "tall", name: "Tall", width: 600, height: 2200, depth: 580, toe_kick_height: 100, toe_kick_depth: 60, doors: 2, drawers: [], shelves: 5 }),
 };
 function addCabinet(type) {
   const p = PRESETS[type]();
   const prefix = { base: "b", wall: "w", tall: "t" }[p.kind];
-  const same = project.cabinets.filter((c) => (c.kind === "wall") === (p.kind === "wall"));
+  // Append to the back-wall run of the same tier; match the project's front style.
+  const same = project.cabinets.filter((c) => !c.rotation && (c.kind === "wall") === (p.kind === "wall"));
   const x = same.reduce((m, c) => Math.max(m, c.x + c.width), 0);
+  const style = project.cabinets.find((c) => c.id === selected)?.door_style || project.cabinets[0]?.door_style || "slab";
   const c = {
-    id: uid(prefix), x, z: 0, elevation: 0, rotation: 0, hinge_side: "left", handles: true,
+    id: uid(prefix), x, z: 0, elevation: 0, rotation: 0, hinge_side: "left", handles: true, door_style: style,
     carcass_material: "carcass", back_material: "back", front_material: "front", drawer_material: "drawer",
     toe_kick_depth: 60, ...p,
   };
@@ -185,6 +188,8 @@ function renderProps() {
         field("System line", s, "system_line"), field("Hinge cup inset", s, "hinge_cup_inset"),
         field("Slide clearance", s, "slide_clearance"), field("Handle c/c", s, "handle_spacing"),
         field("Shelf setback", s, "shelf_setback")),
+      h("h3", {}, "Room"),
+      h("div", { class: "grid3" }, field("Width", s, "room_width"), field("Depth", s, "room_depth"), field("Height", s, "room_height")),
       h("h3", {}, "Worktop"),
       h("div", { class: "grid2" }, field("Thickness", s, "worktop_thickness"), field("Overhang", s, "worktop_overhang")),
       h("h3", {}, "Shaker"),
@@ -205,6 +210,7 @@ function renderProps() {
         const d = structuredClone(c); d.id = uid(c.id.replace(/\d+$/, "")); d.x = c.x + c.width;
         project.cabinets.push(d); selected = d.id; recompute();
       } }, "Duplicate"),
+      h("button", { title: "Rotate 90° (R)", onclick: () => rotateCabinet(c) }, "⟳"),
       h("button", { class: "danger", onclick: () => {
         project.cabinets = project.cabinets.filter((x) => x !== c); selected = null; recompute();
       } }, "Delete")),
@@ -220,7 +226,9 @@ function renderProps() {
       field("Doors", c, "doors", "select", [[0, "None"], [1, "1"], [2, "2"]]),
       field("Hinge", c, "hinge_side", "select", [["left", "Left"], ["right", "Right"]]),
       field("Front style", c, "door_style", "select", [["slab", "Slab"], ["shaker", "Shaker"]]),
-      h("span"),
+      field("Blind corner", c, "blind_side", "select", [["none", "None"], ["left", "Left"], ["right", "Right"]]),
+      c.blind_side && c.blind_side !== "none" ? field("Blind width", c, "blind_width") : null,
+      c.blind_side && c.blind_side !== "none" ? h("span") : null,
       field("Shelves", c, "shelves", "int"),
       field("Handles", c, "handles", "check")),
     field("Drawers (front heights, top first)", c, "drawers", "list"),
@@ -423,19 +431,43 @@ function setup3d() {
   });
   (function loop() { requestAnimationFrame(loop); controls.update(); renderer.render(scene, camera); })();
 }
-// 10 mm grid; snap to neighbouring cabinet edges (same rotation) within 40 mm.
+// Cabinet-local (x, z) -> world, same convention as the Rust core and three.js.
+function toWorld(c, x, z, ox = c.x, oz = c.z, rot = c.rotation) {
+  const r = THREE.MathUtils.degToRad(rot), sn = Math.sin(r), cs = Math.cos(r);
+  return [ox + x * cs + z * sn, oz - x * sn + z * cs];
+}
+function footprint(c, ox = c.x, oz = c.z, rot = c.rotation) {
+  const pts = [[0, 0], [c.width, 0], [0, c.depth], [c.width, c.depth]].map(([x, z]) => toWorld(c, x, z, ox, oz, rot));
+  const xs = pts.map((p) => p[0]), zs = pts.map((p) => p[1]);
+  return { x0: Math.min(...xs), x1: Math.max(...xs), z0: Math.min(...zs), z1: Math.max(...zs) };
+}
+// 10 mm grid, then snap the footprint's edges to walls and other cabinets within 40 mm.
 function snap(c, x, z) {
   x = Math.round(x / 10) * 10; z = Math.round(z / 10) * 10;
-  let bx = null, bd = 40;
+  const f = footprint(c, x, z);
+  const s = project.settings, xs = [0], zs = [0];
+  if (s.room_width > 0) xs.push(s.room_width);
+  if (s.room_depth > 0) zs.push(s.room_depth);
   for (const o of project.cabinets) {
-    if (o === c || o.rotation !== c.rotation) continue;
-    for (const t of [o.x + o.width, o.x - c.width, o.x, o.x + o.width - c.width]) {
-      const d = Math.abs(t - x); if (d < bd) { bd = d; bx = t; }
-    }
+    if (o === c) continue;
+    const g = footprint(o);
+    xs.push(g.x0, g.x1); zs.push(g.z0, g.z1);
   }
-  if (bx !== null) x = bx;
-  if (Math.abs(z) < 40) z = 0;
-  return [x, z];
+  const best = (edges, lines) => {
+    let d = null;
+    for (const e of edges) for (const l of lines) if (Math.abs(l - e) < 40 && (d === null || Math.abs(l - e) < Math.abs(d))) d = l - e;
+    return d ?? 0;
+  };
+  return [Math.round(x + best([f.x0, f.x1], xs)), Math.round(z + best([f.z0, f.z1], zs))];
+}
+// Rotate 90° clockwise (seen from above) about the footprint centre.
+function rotateCabinet(c) {
+  const f = footprint(c), cx = (f.x0 + f.x1) / 2, cz = (f.z0 + f.z1) / 2;
+  let rot = c.rotation - 90;
+  rot = ((rot + 180) % 360 + 360) % 360 - 180;
+  const [lx, lz] = toWorld(c, c.width / 2, c.depth / 2, 0, 0, rot);
+  c.rotation = rot; c.x = Math.round(cx - lx); c.z = Math.round(cz - lz);
+  recompute();
 }
 function resize() {
   const host = $("#v-3d"), w = host.clientWidth, hh = host.clientHeight;
@@ -451,6 +483,7 @@ function mat(color, sel) {
   }
   return matCache.get(k);
 }
+const wallMat = new THREE.MeshStandardMaterial({ color: 0xdedad2, roughness: 1, transparent: true, opacity: 0.45, depthWrite: false });
 const edgeMat = new THREE.LineBasicMaterial({ color: 0x5a554c, transparent: true, opacity: 0.55 });
 function updateScene() {
   if (!renderer) return;
@@ -463,6 +496,15 @@ function updateScene() {
     root.add(g); groups.set(c.id, g);
   }
   const box = new THREE.BoxGeometry(1, 1, 1), edges = new THREE.EdgesGeometry(box);
+  const rs = project.settings;
+  if (rs.room_width > 0 && rs.room_height > 0) {
+    const t = 100, W = rs.room_width, D = rs.room_depth || 3000, H = rs.room_height;
+    for (const [x, z, sx, sz] of [[-t, -t, W + 2 * t, t], [-t, 0, t, D], [W, 0, t, D]]) {
+      const m = new THREE.Mesh(box, wallMat);
+      m.scale.set(sx, H, sz); m.position.set(x + sx / 2, H / 2, z + sz / 2);
+      root.add(m);
+    }
+  }
   for (const p of report.build.parts) {
     if (!showFronts && p.role === "front") continue;
     const g = groups.get(p.cabinet); if (!g) continue;
@@ -520,6 +562,9 @@ async function main() {
       project.cabinets = project.cabinets.filter((c) => c.id !== selected); selected = null; recompute();
     }
     if (e.key === "Escape") { selected = null; recompute(); }
+    if (e.key.toLowerCase() === "r" && !mod && selected) {
+      const c = project.cabinets.find((c) => c.id === selected); if (c) rotateCabinet(c);
+    }
   });
 
   setup3d();

@@ -126,12 +126,58 @@ mod tests {
     }
 
     #[test]
-    fn worktop_spans_touching_base_run() {
-        let r = compute(&sample_kitchen());
+    fn l_kitchen_worktops_meet_without_overlap() {
+        let p = sample_kitchen();
+        let r = compute(&p);
         let tops: Vec<_> = r.build.parts.iter().filter(|p| p.role == parts::Role::Worktop).collect();
-        assert_eq!(tops.len(), 1);
-        assert_eq!(tops[0].w, 600.0 + 800.0 + 450.0);
-        assert_eq!(tops[0].h, 560.0 + 20.0);
+        assert_eq!(tops.len(), 2, "back run + return leg");
+        // back run b1+b2+b3, return leg b4+b5
+        let mut lens: Vec<f64> = tops.iter().map(|t| t.w).collect();
+        lens.sort_by(|a, b| a.total_cmp(b));
+        assert_eq!(lens, vec![450.0 + 600.0, 600.0 + 800.0 + 1200.0]);
+        // world footprints touch but do not overlap
+        let rect = |t: &parts::Part| {
+            let c = p.cabinets.iter().find(|c| c.id == t.cabinet).unwrap();
+            let [x0, _, z0] = t.box3d.pos;
+            let [sx, _, sz] = t.box3d.size;
+            let pts: Vec<_> = [(x0, z0), (x0 + sx, z0), (x0, z0 + sz), (x0 + sx, z0 + sz)]
+                .iter()
+                .map(|&(x, z)| parts::to_world(c.x, c.z, c.rotation, x, z))
+                .collect();
+            let f = |g: fn(&(f64, f64)) -> f64| {
+                let v: Vec<f64> = pts.iter().map(g).collect();
+                (v.iter().cloned().fold(f64::MAX, f64::min), v.iter().cloned().fold(f64::MIN, f64::max))
+            };
+            (f(|p| p.0), f(|p| p.1))
+        };
+        let (a, b) = (rect(tops[0]), rect(tops[1]));
+        let ox = a.0 .1.min(b.0 .1) - a.0 .0.max(b.0 .0);
+        let oz = a.1 .1.min(b.1 .1) - a.1 .0.max(b.1 .0);
+        assert!(ox <= 0.5 || oz <= 0.5, "overlap {ox} x {oz}");
+    }
+
+    #[test]
+    fn overlapping_corner_worktop_is_trimmed() {
+        let mut p = sample_kitchen();
+        // push the return leg back into the corner so the worktops overlap
+        for c in p.cabinets.iter_mut().filter(|c| c.id == "b4" || c.id == "b5") {
+            c.z -= 580.0;
+        }
+        let r = compute(&p);
+        let leg = r.build.parts.iter().find(|q| q.id == "b4-worktop").unwrap();
+        assert_eq!(leg.box3d.pos[0], 580.0);
+        assert_eq!(leg.w, 450.0 + 600.0 - 580.0);
+    }
+
+    #[test]
+    fn blind_corner_front() {
+        let r = compute(&sample_kitchen());
+        let b3: Vec<_> = r.build.parts.iter().filter(|q| q.cabinet == "b3" && q.role == parts::Role::Front).collect();
+        // shaker door (5 pieces) + shaker blind panel (5 pieces)
+        assert_eq!(b3.iter().filter(|q| q.id.contains("door1")).count(), 5);
+        assert_eq!(b3.iter().filter(|q| q.id.contains("blind")).count(), 5);
+        let door_w: f64 = b3.iter().filter(|q| q.id.contains("door1")).map(|q| q.box3d.pos[0] + q.box3d.size[0]).fold(0.0, f64::max);
+        assert!(door_w <= 1200.0 - 600.0, "door stays out of the blind part");
     }
 
     #[test]

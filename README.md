@@ -22,7 +22,8 @@ Every push builds `casework` for Windows, Linux and macOS: Actions → latest ru
 
 ## Editor
 
-Drag a cabinet in 3D to move it (10 mm grid, snaps to neighbouring cabinet edges). Ctrl+Z / Ctrl+Y undo and redo every edit.
+Drag a cabinet in 3D to move it (10 mm grid; its footprint snaps to walls and to the edges of other cabinets, including perpendicular runs). R rotates the selected cabinet 90° in place. Ctrl+Z / Ctrl+Y undo and redo every edit.
+Room width/depth/height (Project) draws the back and side walls; back wall at z = 0, side walls at x = 0 and x = width.
 The project is kept in the browser between visits; Save writes `project.json`.
 
 ## Build
@@ -74,6 +75,7 @@ Frameless / System 32, applied back, full-overlay fronts.
 - Hinges: 2 up to 900 mm, 3 to 1600, 4 to 2000, then 5; cups at the hinge-cup inset, plates on the system line.
 - Slides: longest of 250–550 mm that fits; drawer box = interior − 2 × slide clearance.
 - Shelf-pin rows at the system line from front and back, 32 mm pitch; shelves snap to the nearest row.
-- Worktop: one per straight run of touching base cabinets (same height, depth line and rotation 0), deepest cabinet + overhang. Set thickness 0 to turn off.
+- Worktop: one per straight run of touching base cabinets along their own axis (any rotation), deepest cabinet + overhang. At an L corner the later run is trimmed to butt against the first. Set thickness 0 to turn off.
+- Blind corner: the blind side of the front is a fixed panel (blind width) that the return leg covers; one door fills the rest, hinged away from the blind side. Drawers are not built in blind corners.
 - Shaker fronts: two full-height stiles, two rails with tenons (= groove depth), and a panel from the cabinet's panel material. Bores go to whichever piece holds them; fronts smaller than 2 × frame + 60 stay slab.
 - Nesting: MaxRects best-short-side-fit with kerf and trim; grained materials keep grain along the sheet length.
