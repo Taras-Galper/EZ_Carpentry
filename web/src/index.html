@@ -95,24 +95,75 @@ footer#status{display:flex;gap:16px;padding:6px 12px;border-top:1px solid var(--
 #toast{position:fixed;bottom:40px;left:50%;transform:translate(-50%,20px);background:#222;color:#fff;padding:8px 14px;border-radius:6px;opacity:0;transition:.2s;pointer-events:none}
 #toast.on{opacity:1;transform:translate(-50%,0)}
 .fatal{padding:20px;color:var(--warn);white-space:pre-wrap}
-@media (max-width:900px){main{grid-template-columns:1fr;grid-template-rows:auto 60vh auto;overflow:auto}#left,#right{border:none}#v-parts{grid-template-columns:1fr}body{overflow:auto;height:auto}}
+.menu{display:contents}.m-only{display:none}
+#v-3d canvas{touch-action:none}
+
+/* ---------- phone ---------- */
+@media (max-width:760px){
+  body{grid-template-rows:auto 1fr auto}
+  header{padding:6px 8px;gap:4px}
+  header .logo{margin-right:auto;font-size:14px}
+  header .sp{display:none}
+  header .menu{display:none}
+  header.open .menu{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;flex-basis:100%}
+  header.open .menu button{padding:9px 4px}
+  .m-only{display:inline-flex;align-items:center;justify-content:center}
+  #more{font-size:18px;line-height:1;padding:4px 12px}
+  #undo,#redo{padding:5px 12px}
+  main{display:block;position:relative;min-height:0}
+  #center{height:100%}
+  footer#status{display:none}
+  #toast{bottom:76px}
+  #viewbar{position:absolute;top:8px;right:8px;z-index:3;display:flex;gap:6px}
+  #viewbar #views{margin:0;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.1)}
+  #viewbar #views button{border:none;border-radius:0;padding:7px 12px;color:var(--mute);background:#fff}
+  #viewbar #views button.on{background:var(--ink);color:#fff}
+  #viewbar #fit{background:#fff;padding:7px 12px;box-shadow:0 1px 3px rgba(0,0,0,.1)}
+  #tabs{overflow-x:auto;flex-wrap:nowrap;padding:4px 6px 0;scrollbar-width:none}
+  #tabs::-webkit-scrollbar{display:none}
+  #tabs button{padding:8px 10px;flex:none}
+  #tabs .sp,#coords{display:none}
+  #tabs label{flex:none}
+  #views{flex:none}
+  /* side panels become sheets that slide up above the bottom bar */
+  #left,#right{position:fixed;left:0;right:0;bottom:calc(52px + env(safe-area-inset-bottom));max-height:62vh;z-index:20;border:none;border-radius:14px 14px 0 0;box-shadow:0 -6px 24px rgba(0,0,0,.14);transform:translateY(calc(100% + 60px));transition:transform .2s ease;overflow:auto;padding-top:6px}
+  #left::before,#right::before{content:"";display:block;width:36px;height:4px;border-radius:2px;background:#d6d1c7;margin:0 auto 6px}
+  body.sheet-left #left,body.sheet-right #right{transform:none}
+  #right{padding:6px 14px 16px}
+  #palette{grid-template-columns:repeat(5,1fr)}
+  #mbar{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:6px 8px calc(6px + env(safe-area-inset-bottom));background:var(--panel);border-top:1px solid var(--line);z-index:21}
+  #mbar button{padding:10px;font-size:14px;font-weight:600}
+  #mbar button.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+  #mbsel{font-weight:400;opacity:.7;margin-left:4px}
+  #dial{left:6px;right:6px;bottom:6px;justify-content:space-between}
+  #dial label{flex:1;min-width:0}
+  #dial input{width:100%;min-width:0;padding:7px 5px;font-size:15px}
+  .vhandle{width:24px;height:24px;border-width:3px;border-radius:5px}
+  .wlabel{padding:4px 9px;font-size:13px}
+  #plantools{left:6px;top:6px}
+  #plantools button{padding:9px 14px}
+  label input,label select{padding:8px 7px;font-size:16px}
+  #v-parts,#v-hw,#v-quote{display:block}
+  #v-parts .tablewrap{max-height:none}
+  .preview{border-left:none;border-top:1px solid var(--line)}
+  #v-sheets,#v-drawings{grid-template-columns:1fr;padding:8px}
+  .qprices{border-left:none;border-top:1px solid var(--line)}
+  .qdoc{padding:12px}
+  #v-hw table{margin-bottom:16px}
+  th,td{padding:6px 6px}
+}
 </style>
 </head>
 <body>
 <header>
   <span class="logo">EZ Carpentry</span>
-  <button id="new">New</button>
-  <button id="sample">Sample</button>
-  <button id="open">Open</button>
-  <button id="save">Save</button>
+  <div class="menu"><button id="new">New</button><button id="sample">Sample</button><button id="open">Open</button><button id="save">Save</button></div>
   <button id="undo" title="Undo (Ctrl+Z)" disabled>↶</button>
   <button id="redo" title="Redo (Ctrl+Y)" disabled>↷</button>
   <input id="file" type="file" accept=".json,application/json" hidden>
   <span class="sp"></span>
-  <button id="csv">Cut list</button>
-  <button id="labels">Labels</button>
-  <button id="obj">OBJ</button>
-  <button id="zip" class="pri">Export CNC</button>
+  <div class="menu"><button id="csv">Cut list</button><button id="labels">Labels</button><button id="obj">OBJ</button><button id="zip" class="pri">Export CNC</button></div>
+  <button id="more" class="m-only" aria-label="Menu" aria-expanded="false">⋯</button>
 </header>
 <main>
   <aside id="left"><div id="roombar"></div><div id="palette"></div><button id="projbtn">Project &amp; materials</button><ul id="list"></ul></aside>
@@ -125,7 +176,7 @@ footer#status{display:flex;gap:16px;padding:6px 12px;border-top:1px solid var(--
       <label><input id="fronts" type="checkbox" checked>Fronts</label>
       <button id="fit">Fit</button>
     </nav>
-    <div class="view" id="v-3d"><div id="overlay"></div><svg id="drawsvg"></svg><div id="plantools" hidden></div>
+    <div class="view" id="v-3d"><div id="overlay"></div><svg id="drawsvg"></svg><div id="plantools" hidden></div><div id="viewbar"></div>
       <div id="dial" hidden title="Type a value, or +n / -n to move by n">
         <label>X<input data-k="x" inputmode="decimal"></label><label>Y<input data-k="y" inputmode="decimal"></label><label>Z<input data-k="z" inputmode="decimal"></label><label>↻<input data-k="r" inputmode="decimal"></label>
       </div></div>
@@ -138,6 +189,7 @@ footer#status{display:flex;gap:16px;padding:6px 12px;border-top:1px solid var(--
   <aside id="right"><div id="props"></div></aside>
 </main>
 <footer id="status"></footer>
+<nav id="mbar" class="m-only"><button data-sheet="left">Cabinets</button><button data-sheet="right">Edit <b id="mbsel"></b></button></nav>
 <div id="toast"></div>
 <script>/*BUNDLE*/</script>
 </body>

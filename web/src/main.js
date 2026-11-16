@@ -34,6 +34,18 @@ async function loadEngine() {
   engine = "js";
 }
 
+// ---------- phone: bottom sheets ----------
+const phone = matchMedia("(max-width: 760px)");
+function openSheet(name) {
+  // name: "left" | "right" | null; tapping the open one closes it
+  const cur = document.body.classList.contains("sheet-left") ? "left" : document.body.classList.contains("sheet-right") ? "right" : null;
+  const next = name === cur ? null : name;
+  document.body.classList.toggle("sheet-left", next === "left");
+  document.body.classList.toggle("sheet-right", next === "right");
+  $$("#mbar button").forEach((b) => b.classList.toggle("on", b.dataset.sheet === next));
+}
+const closeSheetOnPhone = () => { if (phone.matches) openSheet(null); };
+
 // ---------- persistence ----------
 function saveLocal() {
   try { localStorage.setItem(STORE, JSON.stringify(project)); } catch {}
@@ -116,6 +128,7 @@ function recompute() {
   $("#redo").disabled = !redoStack.length;
   saveLocal();
   renderPlanTools();
+  $("#mbsel").textContent = selWall != null ? `wall ${selWall + 1}` : selected || "";
   renderList();
   renderProps();
   renderStatus();
@@ -173,7 +186,7 @@ const ICONS = {
 function renderPalette() {
   const el = $("#palette");
   for (const [type, body] of Object.entries(ICONS)) {
-    const b = h("button", { title: `Add ${type.toLowerCase()} cabinet`, "data-add": type, onclick: () => addCabinet(type) });
+    const b = h("button", { title: `Add ${type.toLowerCase()} cabinet`, "data-add": type, onclick: () => { addCabinet(type); closeSheetOnPhone(); } });
     b.innerHTML = `<svg width="28" height="34" viewBox="0 0 28 34" fill="#fff" stroke="currentColor" stroke-width="1.3"><style>.k{fill:currentColor;opacity:.35;stroke:none}.t{stroke-width:2.2}</style>${body}</svg>`;
     b.append(type);
     el.append(b);
@@ -184,7 +197,7 @@ function renderPalette() {
 function renderList() {
   const ul = $("#list"); ul.replaceChildren();
   for (const c of project.cabinets) {
-    ul.append(h("li", { class: c.id === selected ? "sel" : "", onclick: () => { selected = c.id; selWall = null; recompute(); } },
+    ul.append(h("li", { class: c.id === selected ? "sel" : "", onclick: () => { selected = c.id; selWall = null; closeSheetOnPhone(); recompute(); } },
       h("b", {}, c.id), h("span", {}, c.name), h("em", {}, `${c.width}×${c.height}×${c.depth}`)));
   }
 }
@@ -313,6 +326,7 @@ function renderWallPanel(put) {
     catch (e) { toast(String(e.message || e)); return; }
     const n = project.cabinets.length - before;
     toast(n ? `${n} added` : "No free space on this wall");
+    closeSheetOnPhone();
     recompute();
   };
   const lenInput = h("input", { type: "number", step: "any", value: Math.round(w.len), onchange: () => {
@@ -358,6 +372,7 @@ function commitRoom() {
   recompute();
 }
 function rectangleRoom() {
+  closeSheetOnPhone();
   // Big enough for what is already placed, 3600 x 3000 at least.
   let W = 3600, D = 3000;
   for (const c of project.cabinets) { const f = footprint(c); W = Math.max(W, Math.ceil(f.x1 / 100) * 100); D = Math.max(D, Math.ceil(f.z1 / 100) * 100); }
@@ -368,6 +383,7 @@ function rectangleRoom() {
   commitRoom();
 }
 function startDrawing() {
+  closeSheetOnPhone();
   drawing = { pts: [], cursor: null };
   selected = null; selWall = null;
   if (view !== "plan") setView("plan");
@@ -684,13 +700,30 @@ function setup3d() {
   // In the front view the floor is edge-on, so drag along a vertical plane (x only).
   const floorPoint = () => ray.ray.intersectPlane(view === "front" ? wallPlane : floor, new THREE.Vector3());
   aimAt = aim;
+  // Snapped corner under the pointer (ray already aimed); near the first corner it closes the room.
+  const drawCursor = () => {
+    const p = floorAt(); if (!p) return;
+    const first = drawing.pts[0], last = drawing.pts.at(-1);
+    let q = snapCorner(last, p.x, p.z);
+    // a finger is less precise than a mouse: bigger closing radius on touch screens
+    const close = phone.matches ? 350 : 150;
+    if (first && drawing.pts.length >= 3 && Math.hypot(q[0] - first[0], q[1] - first[1]) < close) q = first;
+    drawing.cursor = q;
+    updatePreview();
+    $("#coords").textContent = last ? `${Math.round(Math.hypot(q[0] - last[0], q[1] - last[1]))}` : `${q[0]}, ${q[1]}`;
+  };
   floorAt = () => ray.ray.intersectPlane(floor, new THREE.Vector3());
   const shown = (o) => { for (; o; o = o.parent) if (!o.visible) return false; return true; };
   el.addEventListener("pointerdown", (e) => {
     if (e.button !== 0) return;
     if (gizmo.axis) { drag = null; return; } // the gizmo handles this drag
     aim(e);
-    if (drawing) { drag = { sx: e.clientX, sy: e.clientY, drawing: true }; return; }
+    if (drawing) {
+      // Touch has no hover: take the corner from where the finger lands.
+      drawCursor();
+      drag = { sx: e.clientX, sy: e.clientY, drawing: true };
+      return;
+    }
     const hit = ray.intersectObjects([...root.children, ...roomGroup.children], true)
       .find((x) => shown(x.object) && (x.object.userData.cab || x.object.userData.wall != null));
     const c = hit?.object.userData.cab && project.cabinets.find((c) => c.id === hit.object.userData.cab);
@@ -699,17 +732,7 @@ function setup3d() {
   });
   el.addEventListener("dblclick", () => { if (drawing && drawing.pts.length >= 3) finishDrawing(); });
   el.addEventListener("pointermove", (e) => {
-    if (drawing) {
-      aim(e);
-      const p = floorAt(); if (!p) return;
-      const first = drawing.pts[0], last = drawing.pts.at(-1);
-      let q = snapCorner(last, p.x, p.z);
-      if (first && drawing.pts.length >= 3 && Math.hypot(q[0] - first[0], q[1] - first[1]) < 150) q = first;
-      drawing.cursor = q;
-      updatePreview();
-      $("#coords").textContent = last ? `${Math.round(Math.hypot(q[0] - last[0], q[1] - last[1]))}` : `${q[0]}, ${q[1]}`;
-      return;
-    }
+    if (drawing) { aim(e); drawCursor(); return; }
     if (!drag?.c || !drag.off) return;
     if (!drag.moved && Math.hypot(e.clientX - drag.sx, e.clientY - drag.sy) < 5) return;
     if (!drag.moved) { drag.moved = true; controls.enabled = false; el.setPointerCapture(e.pointerId); }
@@ -740,6 +763,7 @@ function setup3d() {
       d.c.x = d.x; d.c.z = d.z; d.c.rotation = d.rot ?? d.c.rotation; selected = d.c.id; selWall = null; recompute(); return;
     }
     if (Math.hypot(e.clientX - d.sx, e.clientY - d.sy) > 4) return;
+    if (!d.c && d.wall == null) closeSheetOnPhone();
     selected = d.c ? d.c.id : null;
     selWall = !d.c && d.wall != null ? d.wall : null;
     recompute();
@@ -841,7 +865,10 @@ function buildRoom() {
     roomGroup.add(g);
     // length label just outside the wall
     const [lx, lz] = wallPoint(w, w.len / 2, -th - 160);
-    const lab = h("span", { class: "wlabel" + (w.i === selWall ? " on" : ""), onclick: () => { selWall = w.i; selected = null; recompute(); } }, String(Math.round(w.len)));
+    const lab = h("span", { class: "wlabel" + (w.i === selWall ? " on" : ""), onclick: () => {
+      selWall = w.i; selected = null; recompute();
+      if (phone.matches && !document.body.classList.contains("sheet-right")) openSheet("right");
+    } }, String(Math.round(w.len)));
     ov.append(lab); overlayItems.push({ el: lab, pos: new THREE.Vector3(lx, 0, lz) });
   }
   room.walls.forEach(([x, z], i) => {
@@ -1011,7 +1038,9 @@ function frame() {
   } else {
     const host = $("#v-3d"), aspect = host.clientWidth / Math.max(1, host.clientHeight);
     const [sw, sh] = view === "plan" ? [size.x, size.z] : [size.x, size.y];
-    ortho.userData.half = (Math.max(sh, sw / aspect) / 2) * 1.12;
+    // Plan leaves room around the walls for their length labels.
+    const pad = view === "plan" ? 1.12 + 800 / Math.max(sw, sh) : 1.12;
+    ortho.userData.half = (Math.max(sh, sw / aspect) / 2) * pad;
     ortho.zoom = 1;
     if (view === "plan") { camera.up.set(0, 0, -1); camera.position.set(c.x, c.y + 20000, c.z); }
     else { camera.up.set(0, 1, 0); camera.position.set(c.x, c.y, c.z + 20000); }
@@ -1055,6 +1084,8 @@ function setView(v) {
   gizmo.camera = camera;
   controls.enableRotate = v === "3d";
   controls.mouseButtons.LEFT = v === "3d" ? THREE.MOUSE.ROTATE : THREE.MOUSE.PAN;
+  controls.touches.ONE = v === "3d" ? THREE.TOUCH.ROTATE : THREE.TOUCH.PAN;
+  controls.touches.TWO = THREE.TOUCH.DOLLY_PAN;
   $$("#views button").forEach((b) => b.classList.toggle("on", b.dataset.view === v));
   renderPlanTools();
   frame();
@@ -1089,6 +1120,19 @@ async function main() {
   $("#fit").onclick = frame;
   $$("#views button").forEach((b) => (b.onclick = () => setView(b.dataset.view)));
   $("#undo").onclick = undo;
+  $$("#mbar button").forEach((b) => (b.onclick = () => openSheet(b.dataset.sheet)));
+  const header = $("header");
+  $("#more").onclick = () => { const o = header.classList.toggle("open"); $("#more").setAttribute("aria-expanded", o); };
+  $$("header .menu button").forEach((b) => b.addEventListener("click", () => { header.classList.remove("open"); $("#more").setAttribute("aria-expanded", false); }));
+  // On a phone the view switch floats over the canvas instead of hiding at the end of the tab row.
+  const placeViewSwitch = () => {
+    const into = phone.matches ? $("#viewbar") : $("#tabs");
+    const anchor = phone.matches ? null : $("#tabs label");
+    into.insertBefore($("#views"), anchor);
+    into.insertBefore($("#fit"), phone.matches ? null : anchor.nextSibling);
+  };
+  placeViewSwitch();
+  phone.addEventListener("change", () => { openSheet(null); header.classList.remove("open"); placeViewSwitch(); resize(); });
   $("#redo").onclick = redo;
   addEventListener("keydown", (e) => {
     const mod = e.ctrlKey || e.metaKey;

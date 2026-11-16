@@ -26,6 +26,8 @@ Every push builds `casework` for Windows, Linux and macOS: Actions → latest ru
 
 **Moving.** Select a cabinet to get a move gizmo at its bottom-front centre; its arrows follow the cabinet's own width, depth and height, in 10 mm steps. The X / Y / Z / ↻ box under the 3D view takes exact values, or `+n` / `-n` to move by n (`=-n` for a negative coordinate). Arrow keys nudge 10 mm (Shift: 100 mm). Dragging a cabinet near any wall, angled or not, turns it to face the room and backs it onto the wall.
 
+**Phones.** Below 760 px wide the view fills the screen; *Cabinets* and *Edit* at the bottom open slide-up panels (the add buttons and cabinet list; properties of the selected cabinet or wall), *⋯* holds New / Open / Save and the exports, and 3D / Plan / Front float over the view. One finger rotates in 3D and pans in Plan / Front, two fingers zoom and pan. Room drawing works by tapping; tapping near the first corner closes the room.
+
 `window.ezCarpentry` exposes the current project, selection, view and a world-to-screen helper for scripts and tests.
 
 3D / Plan / Front switch the camera; Plan and Front are flat (orthographic) for layout, left-drag on empty space pans. In Front, dragging moves a cabinet sideways only.
