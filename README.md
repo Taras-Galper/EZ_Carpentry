@@ -48,6 +48,7 @@ casework export kitchen.json --zip kitchen.zip
 | `project.json` | Full project; reopen in the editor or feed to the CLI |
 | `cutlist.csv` | Cabinet, part, material, thickness, length (with grain), width, qty, edge banding L1 L2 W1 W2, bores |
 | `hardware.csv` | Hinges, slides, shelf pins, handles per cabinet + totals |
+| `labels.csv` | One row per physical part: id, cabinet, size, edges, bores, cut-outs, sheet number and position |
 | `parts/*.dxf` | One DXF R12 per part, inside face up, 1 unit = 1 mm |
 | `sheets/*.dxf` | Nested sheet layouts, ready for CAM |
 | `sheets/*.svg` | Printable sheet layouts |
@@ -59,6 +60,7 @@ DXF layers (map these to tools/depths in AlphaCAM or any CAM):
 | Layer | Meaning |
 |---|---|
 | `OUTLINE` | Part profile, cut through |
+| `CUTOUT` | Inner through profile (sink / hob), rounded corners as true arcs |
 | `DRILL_D5_Z12` | Ø5 bore, 12 deep (shelf pins, hinge plates, slides) |
 | `DRILL_D35_Z13` | Ø35 hinge cup, 13 deep |
 | `DRILL_D7_THRU` | Ø7 through (confirmat), `DRILL_D5_THRU` handle holes |
@@ -76,6 +78,7 @@ Frameless / System 32, applied back, full-overlay fronts.
 - Slides: longest of 250–550 mm that fits; drawer box = interior − 2 × slide clearance.
 - Shelf-pin rows at the system line from front and back, 32 mm pitch; shelves snap to the nearest row.
 - Worktop: one per straight run of touching base cabinets along their own axis (any rotation), deepest cabinet + overhang. At an L corner the later run is trimmed to butt against the first. Set thickness 0 to turn off.
+- Worktop cut-outs: set Sink or Hob on a base cabinet; the cut-out is centred over it, set back from the worktop front. Sizes of 0 use 760 × 440 R10 (sink) and 560 × 490 R5 (hob). A warning appears when a cut-out comes within 50 mm of a worktop edge or is wider than the cabinet interior.
 - Blind corner: the blind side of the front is a fixed panel (blind width) that the return leg covers; one door fills the rest, hinged away from the blind side. Drawers are not built in blind corners.
 - Shaker fronts: two full-height stiles, two rails with tenons (= groove depth), and a panel from the cabinet's panel material. Bores go to whichever piece holds them; fronts smaller than 2 × frame + 60 stay slab.
 - Nesting: MaxRects best-short-side-fit with kerf and trim; grained materials keep grain along the sheet length.

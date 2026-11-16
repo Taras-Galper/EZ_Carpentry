@@ -134,7 +134,7 @@ mod tests {
         // back run b1+b2+b3, return leg b4+b5
         let mut lens: Vec<f64> = tops.iter().map(|t| t.w).collect();
         lens.sort_by(|a, b| a.total_cmp(b));
-        assert_eq!(lens, vec![450.0 + 600.0, 600.0 + 800.0 + 1200.0]);
+        assert_eq!(lens, vec![450.0 + 600.0 + 450.0, 600.0 + 800.0 + 1200.0]);
         // world footprints touch but do not overlap
         let rect = |t: &parts::Part| {
             let c = p.cabinets.iter().find(|c| c.id == t.cabinet).unwrap();
@@ -160,13 +160,46 @@ mod tests {
     fn overlapping_corner_worktop_is_trimmed() {
         let mut p = sample_kitchen();
         // push the return leg back into the corner so the worktops overlap
-        for c in p.cabinets.iter_mut().filter(|c| c.id == "b4" || c.id == "b5") {
+        for c in p.cabinets.iter_mut().filter(|c| ["b4", "b5", "b6"].contains(&c.id.as_str())) {
             c.z -= 580.0;
         }
         let r = compute(&p);
         let leg = r.build.parts.iter().find(|q| q.id == "b4-worktop").unwrap();
         assert_eq!(leg.box3d.pos[0], 580.0);
-        assert_eq!(leg.w, 450.0 + 600.0 - 580.0);
+        assert_eq!(leg.w, 450.0 + 600.0 + 450.0 - 580.0);
+    }
+
+    #[test]
+    fn worktop_cutouts_sit_over_their_cabinets() {
+        let p = sample_kitchen();
+        let r = compute(&p);
+        let back = r.build.parts.iter().find(|q| q.id == "b1-worktop").unwrap();
+        let leg = r.build.parts.iter().find(|q| q.id == "b4-worktop").unwrap();
+        assert_eq!(back.cutouts.len(), 1);
+        assert_eq!(leg.cutouts.len(), 1);
+        // sink centred on b2 (600 mm into the back run, 800 wide)
+        let sink = &back.cutouts[0];
+        assert_eq!(sink.kind, CutoutKind::Sink);
+        assert_eq!(sink.x + sink.w / 2.0, 600.0 + 400.0);
+        assert_eq!(sink.y, 60.0);
+        // hob centred on b5 (450 mm into the leg, 600 wide)
+        let hob = &leg.cutouts[0];
+        assert_eq!(hob.x + hob.w / 2.0, 450.0 + 300.0);
+        for t in [back, leg] {
+            for c in &t.cutouts {
+                assert!(c.x > 0.0 && c.x + c.w < t.w && c.y > 0.0 && c.y + c.h < t.h);
+            }
+        }
+    }
+
+    #[test]
+    fn cutout_contour_is_closed_rounded_rect() {
+        let c = parts::Cutout { kind: CutoutKind::Sink, x: 0.0, y: 0.0, w: 100.0, h: 50.0, r: 10.0 };
+        let v = c.contour();
+        assert_eq!(v.len(), 8);
+        assert_eq!(v.iter().filter(|p| p.2 > 0.0).count(), 4);
+        let pts = c.points(4);
+        assert!(pts.iter().all(|p| p.0 >= -1e-9 && p.0 <= 100.0 + 1e-9 && p.1 >= -1e-9 && p.1 <= 50.0 + 1e-9));
     }
 
     #[test]

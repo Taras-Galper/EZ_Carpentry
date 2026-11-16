@@ -36,6 +36,7 @@ pub fn export_one(json: &str, kind: &str, index: usize) -> Result<String, JsErro
     Ok(match kind {
         "cutlist" => cw::export::cutlist_csv(&p, &r.build),
         "hardware" => cw::export::hardware_csv(&p, &r.build),
+        "labels" => cw::export::labels_csv(&p, &r),
         "obj" => cw::export::obj(&p, &r.build),
         "part_dxf" => cw::export::dxf::part_dxf(parts.get(index).ok_or_else(|| JsError::new("no such part"))?),
         "sheet_dxf" => cw::export::dxf::sheet_dxf(sheet()?, parts),

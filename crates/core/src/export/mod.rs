@@ -128,6 +128,21 @@ pub fn sheet_svg(project: &Project, sheet: &Sheet, parts: &[Part]) -> String {
             pts.join(" "),
             esc(&m.color)
         );
+        for c in &p.cutouts {
+            let pts: Vec<String> = c
+                .points(6)
+                .into_iter()
+                .map(|(x, y)| {
+                    let (a, b) = pl.map(p.w, x, y);
+                    format!("{:.1},{:.1}", a, b)
+                })
+                .collect();
+            let _ = write!(
+                o,
+                r##"<polygon points="{}" fill="#f4f1ea" stroke="#222" stroke-width="2"/>"##,
+                pts.join(" ")
+            );
+        }
         for h in &p.holes {
             let (x, y) = pl.map(p.w, h.x, h.y);
             let _ = write!(
@@ -155,6 +170,35 @@ pub fn sheet_svg(project: &Project, sheet: &Sheet, parts: &[Part]) -> String {
 
 fn esc(s: &str) -> String {
     s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;")
+}
+
+/// One row per physical part with its sheet and position, for label
+/// printers and checking parts off at the saw or router.
+pub fn labels_csv(project: &Project, report: &Report) -> String {
+    let b = &report.build;
+    let mut at: Vec<Option<(usize, f64, f64, bool)>> = vec![None; b.parts.len()];
+    for (si, s) in report.nesting.sheets.iter().enumerate() {
+        for pl in &s.placements {
+            at[pl.part] = Some((si + 1, pl.x, pl.y, pl.rotated));
+        }
+    }
+    let mut o = String::from("Label,Cabinet,Cabinet name,Part,Material,Thickness,W,H,Edges,Bores,Cut-outs,Sheet,Sheet X,Sheet Y,Rotated\n");
+    for p in &b.parts {
+        let m = project.material(&p.material);
+        let cname = project.cabinets.iter().find(|c| c.id == p.cabinet).map(|c| c.name.clone()).unwrap_or_default();
+        let edges: String = ["B", "R", "T", "L"].iter().zip(p.edges).filter(|(_, e)| *e).map(|(s, _)| *s).collect();
+        let (sheet, sx, sy, rot) = match at[p.id_index(b)] {
+            Some((n, x, y, r)) => (n.to_string(), format!("{x:.1}"), format!("{y:.1}"), if r { "Y" } else { "" }.to_string()),
+            None => ("OVERSIZE".into(), String::new(), String::new(), String::new()),
+        };
+        let _ = writeln!(
+            o,
+            "{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
+            csv_cell(&p.id), csv_cell(&p.cabinet), csv_cell(&cname), csv_cell(&p.name), csv_cell(&m.name),
+            m.thickness, p.w, p.h, edges, p.holes.len(), p.cutouts.len(), sheet, sx, sy, rot
+        );
+    }
+    o
 }
 
 /// World-space boxes as Wavefront OBJ, millimetres, Y up.
@@ -199,6 +243,7 @@ pub fn files(project: &Project, report: &Report) -> Vec<(String, Vec<u8>)> {
         ("project.json".into(), serde_json::to_vec_pretty(project).unwrap_or_default()),
         ("cutlist.csv".into(), cutlist_csv(project, b).into_bytes()),
         ("hardware.csv".into(), hardware_csv(project, b).into_bytes()),
+        ("labels.csv".into(), labels_csv(project, report).into_bytes()),
         ("model.obj".into(), obj(project, b).into_bytes()),
     ];
     for p in &b.parts {

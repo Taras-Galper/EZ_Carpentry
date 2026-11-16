@@ -120,6 +120,8 @@ const PRESETS = {
   Base: () => ({ kind: "base", name: "Base", width: 600, height: 870, depth: 560, toe_kick_height: 100, toe_kick_depth: 60, doors: 1, drawers: [160], shelves: 1 }),
   Drawers: () => ({ kind: "base", name: "Drawer base", width: 600, height: 870, depth: 560, toe_kick_height: 100, toe_kick_depth: 60, doors: 0, drawers: [180, 300, 290], shelves: 0 }),
   Wall: () => ({ kind: "wall", name: "Wall", width: 600, height: 720, depth: 320, elevation: 1450, toe_kick_height: 0, doors: 1, drawers: [], shelves: 2 }),
+  Sink: () => ({ kind: "base", name: "Sink base", width: 800, height: 870, depth: 560, toe_kick_height: 100, toe_kick_depth: 60, doors: 2, drawers: [], shelves: 0, cutout: "sink" }),
+  Hob: () => ({ kind: "base", name: "Hob base", width: 600, height: 870, depth: 560, toe_kick_height: 100, toe_kick_depth: 60, doors: 0, drawers: [180, 300, 290], shelves: 0, cutout: "hob" }),
   Corner: () => ({ kind: "base", name: "Blind corner", width: 1200, height: 870, depth: 560, toe_kick_height: 100, toe_kick_depth: 60, doors: 1, drawers: [], shelves: 1, blind_side: "right", blind_width: 600 }),
   Tall: () => ({ kind: "tall", name: "Tall", width: 600, height: 2200, depth: 580, toe_kick_height: 100, toe_kick_depth: 60, doors: 2, drawers: [], shelves: 5 }),
 };
@@ -232,6 +234,13 @@ function renderProps() {
       field("Shelves", c, "shelves", "int"),
       field("Handles", c, "handles", "check")),
     field("Drawers (front heights, top first)", c, "drawers", "list"),
+    c.kind === "base" ? h("h3", {}, "Worktop cut-out") : null,
+    c.kind === "base" ? h("div", { class: "grid2" },
+      field("Type", c, "cutout", "select", [["none", "None"], ["sink", "Sink"], ["hob", "Hob"]]),
+      c.cutout && c.cutout !== "none" ? field("Front setback", c, "cutout_setback") : h("span"),
+      ...(c.cutout && c.cutout !== "none" ? [
+        field("Width (0 = std)", c, "cutout_width"), field("Depth (0 = std)", c, "cutout_depth"),
+        field("Corner radius", c, "cutout_radius")] : [])) : null,
     h("h3", {}, "Materials"),
     field("Carcass", c, "carcass_material", "select", mats),
     field("Back", c, "back_material", "select", mats),
@@ -293,6 +302,13 @@ function partSvg(p, size = 260) {
     const l = document.createElementNS(ns, "line");
     l.setAttribute("x1", X(g[0])); l.setAttribute("y1", Y(g[1])); l.setAttribute("x2", X(g[2])); l.setAttribute("y2", Y(g[3]));
     l.setAttribute("stroke", "#e0662a"); l.setAttribute("stroke-width", 3); svg.append(l); });
+  for (const c of p.cutouts || []) {
+    const r = document.createElementNS(ns, "rect");
+    r.setAttribute("x", X(c.x)); r.setAttribute("y", Y(c.y + c.h));
+    r.setAttribute("width", c.w * s); r.setAttribute("height", c.h * s);
+    r.setAttribute("rx", c.r * s); r.setAttribute("fill", "#fff"); r.setAttribute("stroke", "#222");
+    svg.append(r);
+  }
   for (const o of p.holes) {
     const c = document.createElementNS(ns, "circle");
     c.setAttribute("cx", X(o.x)); c.setAttribute("cy", Y(o.y)); c.setAttribute("r", Math.max(1.2, (o.dia / 2) * s));
@@ -317,7 +333,9 @@ function renderParts() {
       h("dl", {},
         h("dt", {}, "Finished"), h("dd", {}, `${p.w} × ${p.h} × ${p.thickness}`),
         h("dt", {}, "Material"), h("dd", {}, matOf(p.material).name),
-        h("dt", {}, "Bores"), h("dd", {}, summarizeHoles(p.holes))));
+        h("dt", {}, "Bores"), h("dd", {}, summarizeHoles(p.holes)),
+      ...(p.cutouts || []).flatMap((c) => [h("dt", {}, c.kind === "hob" ? "Hob" : "Sink"),
+        h("dd", {}, `${c.w} × ${c.h} R${c.r} at ${c.x}, ${c.y}`)])));
   };
   const tbody = h("tbody", {}, list.map((p) => h("tr", { "data-i": p.i, onclick: () => show(p) },
     h("td", {}, p.cabinet), h("td", {}, p.name), h("td", {}, matOf(p.material).name),
@@ -484,6 +502,9 @@ function mat(color, sel) {
   return matCache.get(k);
 }
 const wallMat = new THREE.MeshStandardMaterial({ color: 0xdedad2, roughness: 1, transparent: true, opacity: 0.45, depthWrite: false });
+const hobMat = new THREE.MeshStandardMaterial({ color: 0x151617, roughness: 0.25, metalness: 0.2 });
+const steelMat = new THREE.MeshStandardMaterial({ color: 0xc9ccd0, roughness: 0.35, metalness: 0.7 });
+const bowlMat = new THREE.MeshStandardMaterial({ color: 0x6d7277, roughness: 0.5, metalness: 0.6 });
 const edgeMat = new THREE.LineBasicMaterial({ color: 0x5a554c, transparent: true, opacity: 0.55 });
 function updateScene() {
   if (!renderer) return;
@@ -514,6 +535,21 @@ function updateScene() {
     m.userData.cab = p.cabinet;
     const l = new THREE.LineSegments(edges, edgeMat); l.scale.copy(m.scale); l.position.copy(m.position);
     g.add(m, l);
+    // Sink and hob on worktop cut-outs: drawing y runs from the front edge.
+    for (const c of p.cutouts || []) {
+      const cx = x + c.x + c.w / 2, cz = z + sz - (c.y + c.h / 2), top = y + sy;
+      if (c.kind === "hob") {
+        const hob = new THREE.Mesh(box, hobMat);
+        hob.scale.set(c.w + 30, 6, c.h + 30); hob.position.set(cx, top + 3, cz);
+        g.add(hob);
+      } else {
+        const rim = new THREE.Mesh(box, steelMat);
+        rim.scale.set(c.w + 30, 2, c.h + 30); rim.position.set(cx, top + 1, cz);
+        const bowl = new THREE.Mesh(box, bowlMat);
+        bowl.scale.set(c.w - 30, 2, c.h - 30); bowl.position.set(cx, top + 2.5, cz);
+        g.add(rim, bowl);
+      }
+    }
   }
   if (!framed) { frame(); framed = true; }
 }
@@ -547,6 +583,7 @@ async function main() {
   $("#save").onclick = () => saveFile(slug(project.name) + ".json", JSON.stringify(project, null, 2));
   $("#zip").onclick = () => saveFile(slug(project.name) + "_cnc.zip", cw.export_zip(JSON.stringify(project)));
   $("#csv").onclick = () => saveFile(slug(project.name) + "_cutlist.csv", cw.export_one(JSON.stringify(project), "cutlist", 0));
+  $("#labels").onclick = () => saveFile(slug(project.name) + "_labels.csv", cw.export_one(JSON.stringify(project), "labels", 0));
   $("#obj").onclick = () => saveFile(slug(project.name) + ".obj", cw.export_one(JSON.stringify(project), "obj", 0));
   $$("#tabs button").forEach((b) => (b.onclick = () => { tab = b.dataset.tab; renderTab(); }));
   $("#fronts").onchange = (e) => { showFronts = e.target.checked; updateScene(); };

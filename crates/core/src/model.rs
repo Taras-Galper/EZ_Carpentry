@@ -117,6 +117,26 @@ pub enum DoorStyle {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
+pub enum CutoutKind {
+    #[default]
+    None,
+    Sink,
+    Hob,
+}
+
+impl CutoutKind {
+    /// Default cut-out (width, depth, corner radius) when none is given.
+    pub fn default_size(self) -> (f64, f64, f64) {
+        match self {
+            CutoutKind::Sink => (760.0, 440.0, 10.0),
+            CutoutKind::Hob => (560.0, 490.0, 5.0),
+            CutoutKind::None => (0.0, 0.0, 0.0),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
 pub enum BlindSide {
     #[default]
     None,
@@ -157,6 +177,13 @@ pub struct Cabinet {
     /// perpendicular run covers; the door fills the rest.
     pub blind_side: BlindSide,
     pub blind_width: f64,
+    /// Worktop cut-out centred over this cabinet. Sizes of 0 use the
+    /// kind's default; setback is from the worktop front edge.
+    pub cutout: CutoutKind,
+    pub cutout_width: f64,
+    pub cutout_depth: f64,
+    pub cutout_radius: f64,
+    pub cutout_setback: f64,
     /// Drawer front heights, top to bottom. Doors fill what remains.
     pub drawers: Vec<f64>,
     pub shelves: u32,
@@ -189,6 +216,11 @@ impl Default for Cabinet {
             door_style: DoorStyle::Slab,
             blind_side: BlindSide::None,
             blind_width: 600.0,
+            cutout: CutoutKind::None,
+            cutout_width: 0.0,
+            cutout_depth: 0.0,
+            cutout_radius: 0.0,
+            cutout_setback: 60.0,
             drawers: vec![],
             shelves: 1,
             carcass_material: "carcass".into(),
@@ -300,7 +332,7 @@ pub fn sample_kitchen() -> Project {
             ..Cabinet::default()
         },
         Cabinet { doors: 0, drawers: vec![180.0, 300.0, 290.0], shelves: 0, ..base("b1", "Drawer base", 600.0) },
-        Cabinet { doors: 2, shelves: 0, ..base("b2", "Sink base", 800.0) },
+        Cabinet { doors: 2, shelves: 0, cutout: CutoutKind::Sink, ..base("b2", "Sink base", 800.0) },
         Cabinet {
             blind_side: BlindSide::Right,
             blind_width: top_depth + 20.0,
@@ -317,7 +349,14 @@ pub fn sample_kitchen() -> Project {
     let mut z = top_depth;
     for c in [
         Cabinet { drawers: vec![160.0], ..base("b4", "Base", 450.0) },
-        Cabinet { doors: 0, drawers: vec![180.0, 300.0, 290.0], shelves: 0, ..base("b5", "Drawer base", 600.0) },
+        Cabinet {
+            doors: 0,
+            drawers: vec![180.0, 300.0, 290.0],
+            shelves: 0,
+            cutout: CutoutKind::Hob,
+            ..base("b5", "Hob base", 600.0)
+        },
+        Cabinet { drawers: vec![160.0], hinge_side: HingeSide::Right, ..base("b6", "Base", 450.0) },
     ] {
         cabs.push(Cabinet { x: room_w, z, rotation: -90.0, ..c });
         z += cabs.last().map(|c| c.width).unwrap_or(0.0);

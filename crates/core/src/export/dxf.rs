@@ -3,6 +3,7 @@
 //!
 //! Layers:
 //!   OUTLINE          part profile (cut through)
+//!   CUTOUT           inner through profiles: sink / hob (arcs as bulges)
 //!   DRILL_D{d}_Z{z}  vertical bores, diameter d, depth z (mm)
 //!   DRILL_D{d}_THRU  through bores
 //!   SHEET            sheet boundary (sheet files only)
@@ -31,6 +32,7 @@ fn layer_color(name: &str) -> i32 {
         "OUTLINE" => 7,
         "SHEET" => 8,
         "LABEL" => 3,
+        "CUTOUT" => 6,
         n if n.contains("THRU") => 1,
         n if n.starts_with("DRILL_D35") => 5,
         _ => 4,
@@ -57,6 +59,19 @@ impl Dxf {
         let _ = write!(b, "0\nPOLYLINE\n8\n{layer}\n66\n1\n10\n0.0\n20\n0.0\n30\n0.0\n70\n1\n");
         for (x, y) in pts {
             let _ = write!(b, "0\nVERTEX\n8\n{layer}\n10\n{x:.3}\n20\n{y:.3}\n30\n0.0\n");
+        }
+        let _ = write!(b, "0\nSEQEND\n8\n{layer}\n");
+    }
+    /// Closed polyline with per-vertex bulge (arc to the next vertex).
+    fn poly_bulge(&mut self, layer: &str, pts: &[(f64, f64, f64)]) {
+        self.layer(layer);
+        let b = &mut self.body;
+        let _ = write!(b, "0\nPOLYLINE\n8\n{layer}\n66\n1\n10\n0.0\n20\n0.0\n30\n0.0\n70\n1\n");
+        for (x, y, g) in pts {
+            let _ = write!(b, "0\nVERTEX\n8\n{layer}\n10\n{x:.3}\n20\n{y:.3}\n30\n0.0\n");
+            if *g != 0.0 {
+                let _ = write!(b, "42\n{g:.6}\n");
+            }
         }
         let _ = write!(b, "0\nSEQEND\n8\n{layer}\n");
     }
@@ -93,6 +108,17 @@ impl Dxf {
 fn draw_part(d: &mut Dxf, p: &Part, map: &dyn Fn(f64, f64) -> (f64, f64), label: bool, rot: f64) {
     let pts: Vec<(f64, f64)> = p.outline.iter().map(|q| map(q[0], q[1])).collect();
     d.poly("OUTLINE", &pts);
+    for c in &p.cutouts {
+        let v: Vec<(f64, f64, f64)> = c
+            .contour()
+            .into_iter()
+            .map(|(x, y, g)| {
+                let (a, b) = map(x, y);
+                (a, b, g)
+            })
+            .collect();
+        d.poly_bulge("CUTOUT", &v);
+    }
     for h in &p.holes {
         let (x, y) = map(h.x, h.y);
         d.circle(&hole_layer(h), x, y, h.dia / 2.0);

@@ -55,10 +55,75 @@ pub struct Part {
     /// Closed outline, counter-clockwise, drawing frame.
     pub outline: Vec<[f64; 2]>,
     pub holes: Vec<Hole>,
+    /// Through cut-outs inside the outline (worktop sink / hob).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub cutouts: Vec<Cutout>,
     pub box3d: Box3,
 }
 
+/// Rounded-rectangle through cut-out, drawing frame.
+#[derive(Debug, Clone, Serialize)]
+pub struct Cutout {
+    pub kind: CutoutKind,
+    /// Lower-left corner and size.
+    pub x: f64,
+    pub y: f64,
+    pub w: f64,
+    pub h: f64,
+    pub r: f64,
+}
+
+impl Cutout {
+    /// Closed contour as (x, y, bulge) vertices, counter-clockwise.
+    /// Bulge = tan(angle / 4) on the segment leaving each vertex.
+    pub fn contour(&self) -> Vec<(f64, f64, f64)> {
+        let (x0, y0, x1, y1) = (self.x, self.y, self.x + self.w, self.y + self.h);
+        let r = self.r.clamp(0.0, self.w.min(self.h) / 2.0);
+        if r <= 0.01 {
+            return vec![(x0, y0, 0.0), (x1, y0, 0.0), (x1, y1, 0.0), (x0, y1, 0.0)];
+        }
+        let b = (std::f64::consts::PI / 8.0).tan(); // 90° arc
+        vec![
+            (x0 + r, y0, 0.0),
+            (x1 - r, y0, b),
+            (x1, y0 + r, 0.0),
+            (x1, y1 - r, b),
+            (x1 - r, y1, 0.0),
+            (x0 + r, y1, b),
+            (x0, y1 - r, 0.0),
+            (x0, y0 + r, b),
+        ]
+    }
+
+    /// Polyline approximation (for SVG / previews).
+    pub fn points(&self, seg: usize) -> Vec<(f64, f64)> {
+        let r = self.r.clamp(0.0, self.w.min(self.h) / 2.0);
+        if r <= 0.01 {
+            return self.contour().iter().map(|p| (p.0, p.1)).collect();
+        }
+        let c = [
+            (self.x + self.w - r, self.y + r, -90.0),
+            (self.x + self.w - r, self.y + self.h - r, 0.0),
+            (self.x + r, self.y + self.h - r, 90.0),
+            (self.x + r, self.y + r, 180.0),
+        ];
+        let mut out = vec![];
+        for (cx, cy, a0) in c {
+            for i in 0..=seg {
+                let a = (a0 + 90.0 * i as f64 / seg as f64).to_radians();
+                out.push((cx + r * a.cos(), cy + r * a.sin()));
+            }
+        }
+        out
+    }
+}
+
 impl Part {
+    /// Index of this part in the build (parts are unique by id).
+    pub fn id_index(&self, b: &Build) -> usize {
+        b.parts.iter().position(|q| q.id == self.id).unwrap_or(0)
+    }
+
     /// Size to cut before edge banding is applied.
     pub fn cut_size(&self, band: f64) -> (f64, f64) {
         let e = |i: usize| if self.edges[i] { band } else { 0.0 };
@@ -132,6 +197,7 @@ impl Ctx<'_> {
             edges,
             outline: rect(r1(w), r1(h)),
             holes: vec![],
+            cutouts: vec![],
             box3d,
         });
         self.out.parts.len() - 1
@@ -217,6 +283,7 @@ fn shaker_pieces(p: Part, f: f64, g: f64, pm: &Material) -> Vec<Part> {
         edges: [false; 4],
         outline: rect(r1(pw), r1(ph)),
         holes: vec![],
+        cutouts: vec![],
         box3d: b,
     };
     let fm = Material { id: p.material.clone(), thickness: p.thickness, ..Material::default() };
@@ -309,6 +376,8 @@ fn build_worktops(project: &Project, out: &mut Build) {
 
     struct Top<'a> {
         first: &'a Cabinet,
+        /// cabinets with their offset along the run from the first
+        members: Vec<(&'a Cabinet, f64)>,
         ids: String,
         start: f64,
         len: f64,
@@ -321,6 +390,7 @@ fn build_worktops(project: &Project, out: &mut Build) {
             let (last, a1) = r[r.len() - 1];
             Top {
                 first,
+                members: r.iter().map(|(c, a)| (*c, a - a0)).collect(),
                 ids: r.iter().map(|(c, _)| c.id.as_str()).collect::<Vec<_>>().join("+"),
                 start: 0.0,
                 len: a1 + last.width - a0,
@@ -373,6 +443,27 @@ fn build_worktops(project: &Project, out: &mut Build) {
             continue;
         }
         let th = s.worktop_thickness;
+        // Cut-outs: drawing x along the worktop from its (trimmed) start,
+        // y from the front edge.
+        let mut cutouts = vec![];
+        for (c, off) in &t.members {
+            if c.cutout == CutoutKind::None {
+                continue;
+            }
+            let (dw, dd, dr) = c.cutout.default_size();
+            let cw = if c.cutout_width > 0.0 { c.cutout_width } else { dw };
+            let cd = if c.cutout_depth > 0.0 { c.cutout_depth } else { dd };
+            let cr = if c.cutout_radius > 0.0 { c.cutout_radius } else { dr };
+            let x = off + c.width / 2.0 - cw / 2.0 - t.start;
+            let y = c.cutout_setback;
+            let label = format!("{} ({}) {:?} cut-out", c.name, c.id, c.cutout).to_lowercase();
+            if x < 50.0 || x + cw > t.len - 50.0 || y < 30.0 || y + cd > t.depth - 30.0 {
+                out.warnings.push(format!("{label} {cw:.0}×{cd:.0} leaves less than 50 mm to the worktop edge"));
+            } else if cw > c.width - 2.0 * project.material(&c.carcass_material).thickness {
+                out.warnings.push(format!("{label} is wider than the cabinet interior"));
+            }
+            cutouts.push(Cutout { kind: c.cutout, x: r1(x), y: r1(y), w: cw, h: cd, r: cr });
+        }
         out.parts.push(Part {
             id: format!("{}-worktop", t.first.id),
             cabinet: t.first.id.clone(),
@@ -386,6 +477,7 @@ fn build_worktops(project: &Project, out: &mut Build) {
             edges: [true, false, false, false],
             outline: rect(r1(t.len), r1(t.depth)),
             holes: vec![],
+            cutouts,
             box3d: Box3 { pos: [t.start, t.first.height, 0.0], size: [t.len, th, t.depth] },
         });
         if t.len > tm.sheet_length - 2.0 * s.sheet_trim {
