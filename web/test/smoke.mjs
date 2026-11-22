@@ -89,6 +89,16 @@ for (const engine of ["wasm", "js"]) {
     const chip = await page.locator(".snapchip").count();
     await page.mouse.up(); await page.waitForTimeout(300);
     const cabs = await page.evaluate(() => window.ezCarpentry.project.cabinets.map((c) => [c.x, c.z]).sort((a, b) => a[0] - b[0]));
+    // Shift-click both in the list, nudge: both move
+    await page.click('[data-view="3d"]');
+    await page.click('#list li >> nth=0'); await page.click('#list li >> nth=1', { modifiers: ["Shift"] });
+    const before = await page.evaluate(() => window.ezCarpentry.project.cabinets.map((c) => c.elevation));
+    await page.locator("#v-3d canvas").hover({ position: { x: 5, y: 5 } }).catch(() => {});
+    await page.keyboard.press("ArrowUp"); await page.waitForTimeout(200);
+    const after = await page.evaluate(() => window.ezCarpentry.project.cabinets.map((c) => c.elevation));
+    check(after.every((e, k) => e === before[k] + 10), `multi-selection moves together ${JSON.stringify(after)}`);
+    await page.keyboard.press("ArrowDown"); await page.keyboard.press("Escape");
+    await page.click('[data-view="plan"]'); await page.waitForTimeout(300);
     if (room >= 3) {
       check(chip === 1, "snap chip while dragging");
       check(cabs[1][1] === 0 && cabs[1][0] === cabs[0][0] + 600, `dragged cabinet flush and beside its neighbour ${JSON.stringify(cabs)}`);

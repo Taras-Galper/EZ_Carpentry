@@ -28,6 +28,8 @@ Every push builds `casework` for Windows and Linux: Actions → latest run → A
 
 **Projects, presets, defaults.** Projects are kept in this browser (*Projects*: open, copy, delete); *Save* / *Open* move them as `project.json` files. ★ on a cabinet saves it as a preset under *My cabinets*. *Save as shop defaults* (Project panel) stores materials, prices, CNC tools and construction settings for every new project. Materials can be added, and deleted when no cabinet uses them.
 
+**Several cabinets.** Shift-click cabinets (in 3D or the list) to select several: they move, nudge, take typed coordinates and rotate together, and the panel can delete, duplicate (beside the selection), group them, or set the front style and front material for all. Grouped cabinets keep moving together after the selection ends.
+
 **Islands and peninsulas.** *Island* adds three base cabinets with finished backs, end panels and a 300 mm seating overhang, in the nearest free spot to the middle of the room. *Peninsula* adds the same run square to a wall, one end against it, clear of doors and windows. Their cabinets form a group: moving, nudging, typing coordinates or rotating any of them carries the whole group (*Ungroup* in the properties ends it). Two runs placed back to back share one worktop.
 
 **Checks.** Warnings (status bar, packet cover) for cabinets overlapping at the same height, cabinets through a wall, and doors hinged hard against a side wall (they need a filler). *Fill* leaves a 50 mm filler where a run meets a side wall for the same reason.

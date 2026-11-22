@@ -24,6 +24,12 @@ const P_INDEX = "ezc.projects", P_CUR = "ezc.current", P_KEY = (id) => "ezc.p." 
 const DEFAULTS = "ezc.defaults", PRESETS = "ezc.presets";
 let projectId = null;
 let project, report, selected = null, tab = "3d", showFronts = true;
+// Multi-selection: Shift-click adds cabinets to `selected`. selSet holds the
+// others; it is dropped whenever `selected` changes outside multi-select.
+const selSet = new Set();
+let selAnchor = null;
+const isSel = (id) => id === selected || selSet.has(id);
+const selection = () => project.cabinets.filter((c) => isSel(c.id));
 let selWall = null;   // index of the selected wall, or null
 let lenAnchor = "start"; // which point of a wall stays put when its length is typed: start | centre | end
 let drawing = null;   // { pts: [[x, z]...], cursor: [x, z] } while drawing a room
@@ -183,6 +189,9 @@ function migrate(p) {
 
 // ---------- compute ----------
 function recompute() {
+  if (selected !== selAnchor) selSet.clear();
+  for (const id of [...selSet]) if (id === selected || !project.cabinets.some((c) => c.id === id)) selSet.delete(id);
+  selAnchor = selected;
   const json = JSON.stringify(project);
   try {
     report = JSON.parse(cw.compute(json));
@@ -204,6 +213,7 @@ function recompute() {
 
 // ---------- cabinet presets ----------
 const uid = (p) => { let i = 1; while (project.cabinets.some((c) => c.id === p + i)) i++; return p + i; };
+const gid = (p) => { let i = 1; while (project.cabinets.some((c) => c.group === p + i)) i++; return p + i; };
 const CAB_PRESETS = {
   Base: () => ({ kind: "base", name: "Base", width: 600, height: 870, depth: 560, toe_kick_height: 100, toe_kick_depth: 60, doors: 1, drawers: [160], shelves: 1 }),
   Drawers: () => ({ kind: "base", name: "Drawer base", width: 600, height: 870, depth: 560, toe_kick_height: 100, toe_kick_depth: 60, doors: 0, drawers: [180, 300, 290], shelves: 0 }),
@@ -223,7 +233,14 @@ const CAB_PRESETS = {
 };
 // ---------- islands and peninsulas: cabinets that move together ----------
 const GROUPS = { Island: true, Peninsula: true };
-const groupOf = (c) => (c.group ? project.cabinets.filter((o) => o.group === c.group) : [c]);
+// A multi-selection moves as one; otherwise a cabinet's group does.
+const groupOf = (c) => {
+  if (selSet.size && isSel(c.id)) {
+    const ids = new Set(selection().flatMap((m) => (m.group ? project.cabinets.filter((o) => o.group === m.group) : [m])).map((m) => m.id));
+    return project.cabinets.filter((o) => ids.has(o.id));
+  }
+  return c.group ? project.cabinets.filter((o) => o.group === c.group) : [c];
+};
 // Move/rotate c to (x, z, elevation, rotation), carrying its group along rigidly.
 function placeCabinet(c, x, z, elev = c.elevation, rot = c.rotation) {
   const dr = rot - c.rotation, de = elev - c.elevation;
@@ -249,7 +266,7 @@ function previewGroup(c, x, z, y, rot = c.rotation) {
 }
 function addGroup(type) {
   const n = 3, w = 600, d = 560, seat = 300;
-  const gid = uid(type.toLowerCase());
+  const groupId = gid(type.toLowerCase());
   const style = project.cabinets[0]?.door_style || "slab";
   let origin, rot, firstFree = false;
   // Peninsula: from the middle of the first wall with room for it, into the room.
@@ -299,7 +316,7 @@ function addGroup(type) {
   const r = THREE.MathUtils.degToRad(rot), ux = [Math.cos(r), -Math.sin(r)];
   for (let k = 0; k < n; k++) {
     const c = {
-      ...CAB_PRESETS.Base(), name: type, id: uid("b"), group: gid,
+      ...CAB_PRESETS.Base(), name: type, id: uid("b"), group: groupId,
       x: Math.round((origin[0] + ux[0] * w * k) * 10) / 10, z: Math.round((origin[1] + ux[1] * w * k) * 10) / 10,
       rotation: rot, elevation: 0, door_style: style, handles: true, back_finished: true, worktop_back: seat,
       hinge_side: k === 0 && !firstFree ? "right" : "left",
@@ -415,7 +432,7 @@ function renderPalette() {
 function renderList() {
   const ul = $("#list"); ul.replaceChildren();
   for (const c of project.cabinets) {
-    ul.append(h("li", { class: c.id === selected ? "sel" : "", onclick: () => { selected = c.id; selWall = null; closeSheetOnPhone(); recompute(); } },
+    ul.append(h("li", { class: isSel(c.id) ? "sel" : "", onclick: (e) => { if (e.shiftKey && selected) toggleSel(c.id); else { selected = c.id; selWall = null; closeSheetOnPhone(); } recompute(); } },
       h("b", {}, c.id), h("span", {}, c.name), h("em", {}, `${c.width}${isL(c) ? "/" + c.width2 : ""}×${c.height}×${c.depth}`)));
   }
 }
@@ -451,6 +468,7 @@ function renderProps() {
   if (selWall != null && wallOf(project.room, selWall)) return renderWallPanel(put);
   const c = project.cabinets.find((c) => c.id === selected);
   const mats = project.materials.map((m) => [m.id, m.name]);
+  if (c && selSet.size) return renderMultiPanel(put);
   if (!c) {
     const s = project.settings;
     put(
@@ -570,6 +588,54 @@ function renderProps() {
     carcass ? field("Drawer box", c, "drawer_material", "select", mats) : null,
     c.kind !== "appliance" && c.kind !== "filler" && c.door_style === "shaker" ? field("Shaker panel", c, "panel_material", "select", mats) : null,
   );
+}
+
+function toggleSel(id) {
+  if (id === selected) {
+    const next = [...selSet][0];
+    if (next == null) return;
+    selSet.delete(next); selected = next;
+  } else if (selSet.has(id)) selSet.delete(id);
+  else selSet.add(id);
+  selAnchor = selected;
+}
+// Several cabinets selected: act on them together.
+function renderMultiPanel(put) {
+  const cs = selection();
+  const style = new Set(cs.map((c) => c.door_style)).size === 1 ? cs[0].door_style : "";
+  const grouped = cs.some((c) => c.group);
+  put(
+    h("div", { class: "row" }, h("h3", {}, `${cs.length} cabinets`),
+      h("button", { title: "Rotate 90° (R)", onclick: () => rotateCabinet(cs.find((c) => c.id === selected)) }, "⟳"),
+      h("button", { class: "danger", onclick: () => { project.cabinets = project.cabinets.filter((x) => !isSel(x.id)); selected = null; recompute(); } }, "Delete")),
+    h("div", { class: "mute" }, cs.map((c) => c.id).join(" · ")),
+    h("div", { class: "row" },
+      h("button", { onclick: () => { const g = gid("group"); for (const c of cs) c.group = g; recompute(); } }, "Group"),
+      grouped ? h("button", { onclick: () => { for (const c of cs) c.group = ""; recompute(); } }, "Ungroup") : null,
+      h("button", { onclick: () => duplicateSelection(cs) }, "Duplicate")),
+    h("h3", {}, "Set for all"),
+    h("div", { class: "grid2" },
+      h("label", {}, h("span", {}, "Front style"), h("select", { onchange: (e) => { for (const c of cs) c.door_style = e.target.value; recompute(); } },
+        ...[["", "—"], ["slab", "Slab"], ["shaker", "Shaker"], ["shaker_routed", "Shaker routed"]].map(([v, t]) => h("option", { value: v, selected: v === style, disabled: v === "" }, t)))),
+      h("label", {}, h("span", {}, "Fronts"), h("select", { onchange: (e) => { for (const c of cs) c.front_material = e.target.value; recompute(); } },
+        h("option", { value: "", disabled: true, selected: new Set(cs.map((c) => c.front_material)).size > 1 }, "—"),
+        ...project.materials.map((m) => h("option", { value: m.id, selected: cs.every((c) => c.front_material === m.id) }, m.name))))),
+  );
+}
+// Copies placed beside the selection (to its right along x), selected.
+function duplicateSelection(cs) {
+  const fs = cs.map((c) => footprint(c));
+  const dx = Math.max(...fs.map((f) => f.x1)) - Math.min(...fs.map((f) => f.x0));
+  const groups = new Map();
+  const copies = cs.map((c) => {
+    const d = structuredClone(c);
+    d.id = uid(c.id.replace(/\d+$/, "")); project.cabinets.push(d);
+    d.x = Math.round((c.x + dx) * 10) / 10;
+    if (c.group) { if (!groups.has(c.group)) groups.set(c.group, gid("group")); d.group = groups.get(c.group); }
+    return d;
+  });
+  selected = copies[0].id; selSet.clear(); for (const d of copies.slice(1)) selSet.add(d.id); selAnchor = selected;
+  recompute();
 }
 
 function renderWallPanel(put) {
@@ -1079,10 +1145,13 @@ function setup3d() {
       return;
     }
     if (d.moved && d.x != null) {
-      placeCabinet(d.c, d.x, d.z, d.c.elevation, d.rot ?? d.c.rotation); selected = d.c.id; selWall = null; recompute(); return;
+      placeCabinet(d.c, d.x, d.z, d.c.elevation, d.rot ?? d.c.rotation);
+      if (!isSel(d.c.id)) selected = d.c.id;
+      selWall = null; recompute(); return;
     }
     if (Math.hypot(e.clientX - d.sx, e.clientY - d.sy) > 4) return;
     if (!d.c && d.wall == null) closeSheetOnPhone();
+    if (d.c && e.shiftKey && selected) { toggleSel(d.c.id); selWall = null; recompute(); return; }
     selected = d.c ? d.c.id : null;
     selWall = !d.c && d.wall != null ? d.wall : null;
     recompute();
@@ -1382,7 +1451,7 @@ function updateScene() {
     const g = groups.get(p.cabinet); if (!g) continue;
     const [x, y, z] = p.box3d.pos, [sx, sy, sz] = p.box3d.size;
     for (const b of [p.box3d, ...(p.more3d || [])]) {
-      const m = new THREE.Mesh(box, mat(matOf(p.material).color, p.cabinet === selected));
+      const m = new THREE.Mesh(box, mat(matOf(p.material).color, isSel(p.cabinet)));
       m.scale.set(...b.size); m.position.set(b.pos[0] + b.size[0] / 2, b.pos[1] + b.size[1] / 2, b.pos[2] + b.size[2] / 2);
       m.userData.cab = p.cabinet;
       const l = new THREE.LineSegments(edges, edgeMat); l.scale.copy(m.scale); l.position.copy(m.position);
@@ -1564,7 +1633,7 @@ async function main() {
     if (mod && e.key.toLowerCase() === "z") { e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
     if (mod && e.key.toLowerCase() === "y") { e.preventDefault(); redo(); return; }
     if ((e.key === "Delete" || e.key === "Backspace") && selected) {
-      project.cabinets = project.cabinets.filter((c) => c.id !== selected); selected = null; recompute();
+      project.cabinets = project.cabinets.filter((c) => !isSel(c.id)); selected = null; recompute();
     }
     if (drawing && e.key === "Enter") { finishDrawing(); return; }
     if (drawing && e.key === "Escape") { drawing = null; updatePreview(); recompute(); return; }
