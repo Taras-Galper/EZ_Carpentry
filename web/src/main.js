@@ -1455,6 +1455,49 @@ function mat(color, sel) {
   }
   return matCache.get(k);
 }
+// Wood: a procedural grain texture per colour (lines along v), mapped at
+// real size on each part's main face, grain along its length.
+const grainCache = new Map();
+function grainTexture(color) {
+  if (grainCache.has(color)) return grainCache.get(color);
+  const n = 512, cv = document.createElement("canvas"); cv.width = cv.height = n;
+  const g = cv.getContext("2d"), base = new THREE.Color(color);
+  g.fillStyle = "#" + base.getHexString(); g.fillRect(0, 0, n, n);
+  let seed = 7; const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  for (let i = 0; i < 140; i++) {
+    const x0 = rnd() * n, w = 0.6 + rnd() * 2.2, dark = rnd() < 0.7, a = 0.05 + rnd() * 0.12;
+    const c = base.clone().multiplyScalar(dark ? 0.72 : 1.18);
+    g.strokeStyle = `rgba(${Math.min(255, c.r * 255) | 0},${Math.min(255, c.g * 255) | 0},${Math.min(255, c.b * 255) | 0},${a})`;
+    g.lineWidth = w; g.beginPath();
+    const amp = 2 + rnd() * 6, f = 1 + rnd() * 3, ph = rnd() * 6;
+    for (let y = 0; y <= n; y += 8) { const x = x0 + Math.sin(y / n * Math.PI * 2 * f + ph) * amp; y ? g.lineTo(x, y) : g.moveTo(x, y); }
+    g.stroke();
+  }
+  const t = new THREE.CanvasTexture(cv);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping; t.colorSpace = THREE.SRGBColorSpace;
+  grainCache.set(color, t);
+  return t;
+}
+// Material for one box of a part: plain colour, or wood grain at size.
+function partMat(p, size, sel) {
+  const m = matOf(p.material);
+  const wood = m.grain || p.role === "worktop";
+  if (!wood) return mat(m.color, sel);
+  // main face = the two largest dimensions; three.js box UVs: x-face (z, y), y-face (x, z), z-face (x, y)
+  const [sx, sy, sz] = size, thin = sx <= sy && sx <= sz ? 0 : sy <= sz ? 1 : 2;
+  const [u, v] = thin === 0 ? [sz, sy] : thin === 1 ? [sx, sz] : [sx, sy];
+  const along = p.role === "worktop" ? "u" : (p.grain_y ? "v" : "u"); // grain direction on that face
+  const key = `${m.color}|${sel}|${Math.round(u / 50)}|${Math.round(v / 50)}|${along}`;
+  if (!matCache.has(key)) {
+    const t = grainTexture(m.color).clone();
+    t.needsUpdate = true;
+    if (along === "u") { t.rotation = Math.PI / 2; t.repeat.set(v / 900, u / 900); } else t.repeat.set(u / 900, v / 900);
+    const mt = new THREE.MeshStandardMaterial({ map: t, roughness: 0.7 });
+    if (sel) mt.color = new THREE.Color("#ffffff").lerp(new THREE.Color("#3d7cf5"), 0.35);
+    matCache.set(key, mt);
+  }
+  return matCache.get(key);
+}
 const applianceMat = new THREE.MeshStandardMaterial({ color: 0xb9bcc0, roughness: 0.6, metalness: 0.3, transparent: true, opacity: 0.55 });
 const applianceSel = new THREE.MeshStandardMaterial({ color: 0x8fa8d8, roughness: 0.6, transparent: true, opacity: 0.6 });
 const wallSelMat = new THREE.MeshStandardMaterial({ color: 0x8fb0ea, roughness: 1, transparent: true, opacity: 0.6, depthWrite: false });
@@ -1491,7 +1534,7 @@ function updateScene() {
     const g = groups.get(p.cabinet); if (!g) continue;
     const [x, y, z] = p.box3d.pos, [sx, sy, sz] = p.box3d.size;
     for (const b of [p.box3d, ...(p.more3d || [])]) {
-      const m = new THREE.Mesh(box, mat(matOf(p.material).color, isSel(p.cabinet)));
+      const m = new THREE.Mesh(box, partMat(p, b.size, isSel(p.cabinet)));
       m.scale.set(...b.size); m.position.set(b.pos[0] + b.size[0] / 2, b.pos[1] + b.size[1] / 2, b.pos[2] + b.size[2] / 2);
       m.userData.cab = p.cabinet;
       const l = new THREE.LineSegments(edges, edgeMat); l.scale.copy(m.scale); l.position.copy(m.position);
