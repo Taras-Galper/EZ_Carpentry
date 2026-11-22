@@ -451,5 +451,64 @@
         "sill": 0.0
       }
     ]
+  },
+  "cnc": {
+    "router": {
+      "number": 1,
+      "name": "Router Ø8 compression",
+      "dia": 8.0,
+      "feed": 9000.0,
+      "plunge": 2500.0,
+      "rpm": 18000.0
+    },
+    "groove_router": {
+      "number": 2,
+      "name": "Router Ø6 straight",
+      "dia": 6.0,
+      "feed": 6000.0,
+      "plunge": 1500.0,
+      "rpm": 18000.0
+    },
+    "drills": [
+      {
+        "number": 3,
+        "name": "Drill Ø5",
+        "dia": 5.0,
+        "feed": 0.0,
+        "plunge": 2000.0,
+        "rpm": 6000.0
+      },
+      {
+        "number": 4,
+        "name": "Drill Ø7",
+        "dia": 7.0,
+        "feed": 0.0,
+        "plunge": 2000.0,
+        "rpm": 6000.0
+      },
+      {
+        "number": 5,
+        "name": "Drill Ø8",
+        "dia": 8.0,
+        "feed": 0.0,
+        "plunge": 2000.0,
+        "rpm": 6000.0
+      },
+      {
+        "number": 6,
+        "name": "Hinge bit Ø35",
+        "dia": 35.0,
+        "feed": 0.0,
+        "plunge": 1500.0,
+        "rpm": 4500.0
+      }
+    ],
+    "pass_depth": 10.0,
+    "through": 0.3,
+    "safe_z": 15.0,
+    "tab_area": 0.12,
+    "tab_min_side": 150.0,
+    "tab_length": 30.0,
+    "tab_height": 3.0
   }
 }

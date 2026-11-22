@@ -1,5 +1,6 @@
 pub mod drawing;
 pub mod dxf;
+pub mod gcode;
 pub mod quote;
 pub mod zip;
 
@@ -293,8 +294,14 @@ pub fn files(project: &Project, report: &Report) -> Vec<(String, Vec<u8>)> {
 
 fn write_sheets(project: &Project, n: &Nesting, parts: &[Part], files: &mut Vec<(String, Vec<u8>)>) {
     for (i, s) in n.sheets.iter().enumerate() {
-        let base = format!("sheets/{:02}_{}", i + 1, safe(&s.material));
-        files.push((format!("{base}.dxf"), dxf::sheet_dxf(s, parts).into_bytes()));
-        files.push((format!("{base}.svg"), sheet_svg(project, s, parts).into_bytes()));
+        let name = format!("{:02}_{}", i + 1, safe(&s.material));
+        files.push((format!("sheets/{name}.dxf"), dxf::sheet_dxf(s, parts).into_bytes()));
+        files.push((format!("sheets/{name}.svg"), sheet_svg(project, s, parts).into_bytes()));
+        files.push((format!("nc/{name}.nc"), gcode::sheet_program(project, s, parts, i).into_bytes()));
+    }
+    for p in parts {
+        if let Some(g) = gcode::face2_program(project, p) {
+            files.push((format!("nc/face2/{}.nc", safe(&p.id)), g.into_bytes()));
+        }
     }
 }

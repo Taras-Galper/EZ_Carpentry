@@ -423,6 +423,138 @@ mod tests {
         assert_eq!(p.settings.room_width, 0.0);
     }
 
+    /// Parse a program into (tool, x, y, z) positions after every move.
+    fn trace(g: &str) -> Vec<(u32, f64, f64, f64)> {
+        let (mut t, mut x, mut y, mut z) = (0u32, 0.0, 0.0, 50.0);
+        let mut out = vec![];
+        for line in g.lines() {
+            if line.starts_with('(') || line.starts_with('%') {
+                continue;
+            }
+            for w in line.split_whitespace() {
+                let (k, v) = w.split_at(1);
+                let v: f64 = v.parse().unwrap_or(0.0);
+                match k {
+                    "T" => t = v as u32,
+                    "X" => x = v,
+                    "Y" => y = v,
+                    "Z" => z = v,
+                    _ => {}
+                }
+            }
+            if line.starts_with("G0") || line.starts_with("G1") || line.starts_with("G3") {
+                out.push((t, x, y, z));
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn gcode_stays_on_sheet_and_cuts_every_part() {
+        let mut p = sample_kitchen();
+        p.settings.back_mode = BackMode::Grooved;
+        p.cabinets[0].door_style = DoorStyle::ShakerRouted;
+        let r = compute(&p);
+        let cnc = &p.cnc;
+        let rad = cnc.router.dia / 2.0;
+        for (i, s) in r.nesting.sheets.iter().enumerate() {
+            let g = export::gcode::sheet_program(&p, s, &r.build.parts, i);
+            let th = p.material(&s.material).thickness;
+            let moves = trace(&g);
+            for &(_, x, y, z) in &moves {
+                assert!(x >= -rad - 1.0 && x <= s.length + rad + 1.0, "x {x} off sheet {}", s.material);
+                assert!(y >= -rad - 1.0 && y <= s.width + rad + 1.0, "y {y} off sheet");
+                assert!(z >= -(th + cnc.through) - 1e-6, "z {z} too deep on {}", s.material);
+            }
+            let profiles = g.lines().filter(|l| l.starts_with("(Profile ")).count();
+            assert_eq!(profiles, s.placements.len());
+            assert!(g.trim_end().ends_with('%') && g.contains("M30"));
+        }
+    }
+
+    #[test]
+    fn gcode_profile_is_offset_by_tool_radius() {
+        let p = sample_kitchen();
+        let r = compute(&p);
+        let s = &r.nesting.sheets[0];
+        let pl = &s.placements[0];
+        let part = &r.build.parts[pl.part];
+        let pts: Vec<(f64, f64)> = part.outline.iter().map(|q| pl.map(part.w, q[0], q[1])).collect();
+        let path = export::gcode::offset(&pts, 4.0);
+        let bb = |v: &[(f64, f64)]| {
+            v.iter().fold((f64::MAX, f64::MAX, f64::MIN, f64::MIN), |a, p| (a.0.min(p.0), a.1.min(p.1), a.2.max(p.0), a.3.max(p.1)))
+        };
+        let (a, b) = (bb(&pts), bb(&path));
+        for (u, v) in [(a.0 - 4.0, b.0), (a.1 - 4.0, b.1), (a.2 + 4.0, b.2), (a.3 + 4.0, b.3)] {
+            assert!((u - v).abs() < 1e-6, "{u} vs {v}");
+        }
+    }
+
+    /// No part's router path cuts into a neighbouring part.
+    #[test]
+    fn profiles_never_cut_into_neighbours() {
+        let p = sample_kitchen();
+        let r = compute(&p);
+        let rad = p.cnc.router.dia / 2.0;
+        for s in &r.nesting.sheets {
+            for (i, a) in s.placements.iter().enumerate() {
+                // tool-path envelope of part a
+                let (ax0, ay0, ax1, ay1) = (a.x - rad, a.y - rad, a.x + a.w + rad, a.y + a.h + rad);
+                for (j, b) in s.placements.iter().enumerate() {
+                    if i == j {
+                        continue;
+                    }
+                    let ox = ax1.min(b.x + b.w) - ax0.max(b.x);
+                    let oy = ay1.min(b.y + b.h) - ay0.max(b.y);
+                    assert!(ox <= 1e-6 || oy <= 1e-6, "path of {} enters {}", r.build.parts[a.part].id, r.build.parts[b.part].id);
+                }
+            }
+        }
+    }
+
+    /// A back-panel groove that runs out through a panel's ends is cut right to both ends.
+    #[test]
+    fn open_grooves_reach_the_edge() {
+        let mut p = sample_kitchen();
+        p.settings.back_mode = BackMode::Grooved;
+        p.cabinets.retain(|c| c.id == "w1");
+        let r = compute(&p);
+        let bottom_i = r.build.parts.iter().position(|q| q.id == "w1-bottom").unwrap();
+        let (si, s) = r.nesting.sheets.iter().enumerate().find(|(_, s)| s.placements.iter().any(|pl| pl.part == bottom_i)).unwrap();
+        let pl = s.placements.iter().find(|pl| pl.part == bottom_i).unwrap();
+        let g = export::gcode::sheet_program(&p, s, &r.build.parts, si);
+        // groove router path along the groove must span the part's full footprint
+        let moves = trace(&g);
+        let gr = p.cnc.groove_router.number;
+        let (x0, y0, x1, y1) = (pl.x, pl.y, pl.x + pl.w, pl.y + pl.h);
+        let on_part: Vec<_> = moves
+            .iter()
+            .filter(|m| m.0 == gr && m.3 < 0.0 && m.1 >= x0 - 5.0 && m.1 <= x1 + 5.0 && m.2 >= y0 - 5.0 && m.2 <= y1 + 5.0)
+            .collect();
+        assert!(!on_part.is_empty());
+        let (lo, hi) = if pl.w > pl.h { (x0, x1) } else { (y0, y1) };
+        let pos = |m: &&(u32, f64, f64, f64)| if pl.w > pl.h { m.1 } else { m.2 };
+        let min = on_part.iter().map(pos).fold(f64::MAX, f64::min);
+        let max = on_part.iter().map(pos).fold(f64::MIN, f64::max);
+        assert!(min <= lo + 1e-6 && max >= hi - 1e-6, "groove {min}..{max} vs part {lo}..{hi}");
+    }
+
+    #[test]
+    fn small_parts_get_tabs_and_face2_programs_exist() {
+        let mut p = sample_kitchen();
+        p.cabinets[0].door_style = DoorStyle::ShakerRouted;
+        let r = compute(&p);
+        let files = export::files(&p, &r);
+        assert!(files.iter().any(|f| f.0.starts_with("nc/face2/t1-door1")));
+        // toe kicks are 100 mm wide: tabs leave the cutter above the bottom
+        let (si, s) = r.nesting.sheets.iter().enumerate().find(|(_, s)| s.placements.iter().any(|pl| r.build.parts[pl.part].name == "Toe kick")).unwrap();
+        let g = export::gcode::sheet_program(&p, s, &r.build.parts, si);
+        let th = p.material(&s.material).thickness;
+        let tab_z = -(th + p.cnc.through) + p.cnc.through + p.cnc.tab_height;
+        assert!(g.contains(&format!("Z{}", (tab_z * 1000.0).round() / 1000.0)), "no tab lifts");
+        assert!(g.contains("NOT IN THIS PROGRAM:") && g.contains("edge bores"));
+    }
+
     #[test]
     fn blind_corner_front() {
         let r = compute(&sample_kitchen());

@@ -12,6 +12,7 @@ pub struct Project {
     pub cabinets: Vec<Cabinet>,
     pub pricing: Pricing,
     pub room: crate::room::Room,
+    pub cnc: crate::export::gcode::Cnc,
 }
 
 /// Prices for quoting. Currency is just a label.
@@ -521,6 +522,7 @@ pub fn sample_kitchen() -> Project {
         cabinets: cabs,
         pricing: Pricing::default(),
         room,
+        cnc: Default::default(),
     }
 }
 

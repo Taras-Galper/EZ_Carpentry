@@ -35,6 +35,15 @@ Drag a cabinet in 3D to move it (10 mm grid; its footprint snaps to walls and to
 Room width/depth/height (Project) draws the back and side walls; back wall at z = 0, side walls at x = 0 and x = width.
 The project is kept in the browser between visits; Save writes `project.json`.
 
+## G-code
+
+One program per nested sheet, plain ISO / Fanuc-style (`G21 G90`, `T M6`, `S M3`): check it against your machine's post and simulate before the first cut.
+
+- Origin at the sheet's lower-left corner, Z0 on top of the material; through-cuts go `through` mm into the spoilboard.
+- Order: vertical drilling per tool → pockets and grooves (narrow ones with the groove cutter; grooves that run out through a part's edge are cut right through it) → holes larger than any drill as helices with the router → sink / hob cut-outs → part profiles, smallest parts first, offset by the cutter radius, in depth passes, with holding tabs on small parts.
+- Not in the sheet program, listed in its header: edge bores (edge borer / horizontal aggregate, see the part DXFs) and opposite-face pockets (`nc/face2/<part>.nc`, part flipped with its lower-left corner at the origin).
+- Tools, feeds, rpm, pass depth, tab size and safe Z are under Project → CNC. Parts are nested at least one router diameter apart (or the kerf, if larger) so neighbouring paths never cut into each other.
+
 ## Quoting
 
 Quote tab: rates (markup, VAT, labour per hour, CNC minutes per sheet, assembly and install hours per cabinet, edge band per metre), price per sheet for each material, and unit price per hardware item.
@@ -73,6 +82,8 @@ casework export kitchen.json --zip kitchen.zip
 | `sheets/*.svg` | Printable sheet layouts |
 | `drawings/*.svg` | Shop drawing per cabinet: front elevation, section, plan, dimensioned |
 | `model.obj` | 3D model of all parts (mm, Y up) |
+| `nc/*.nc` | G-code per sheet (see below) |
+| `nc/face2/*.nc` | G-code for opposite-face pockets, per part |
 
 DXF layers (map these to tools/depths in AlphaCAM or any CAM):
 

@@ -149,7 +149,9 @@ pub fn nest(project: &Project, parts: &[Part]) -> Nesting {
     }
     for mid in mats {
         let m = project.material(&mid);
-        let k = s.kerf;
+        // Parts sit at least one cutter diameter apart, so neighbouring
+        // router paths meet at most and never cut into each other.
+        let k = s.kerf.max(project.cnc.router.dia);
         let uw = m.sheet_length - 2.0 * s.sheet_trim + k;
         let uh = m.sheet_width - 2.0 * s.sheet_trim + k;
         let mut items: Vec<(usize, f64, f64)> = parts

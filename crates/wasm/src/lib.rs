@@ -44,6 +44,7 @@ pub fn export_one(json: &str, kind: &str, index: usize) -> Result<String, JsErro
         "part_dxf" => cw::export::dxf::part_dxf(parts.get(index).ok_or_else(|| JsError::new("no such part"))?),
         "sheet_dxf" => cw::export::dxf::sheet_dxf(sheet()?, parts),
         "sheet_svg" => cw::export::sheet_svg(&p, sheet()?, parts),
+        "sheet_nc" => cw::export::gcode::sheet_program(&p, sheet()?, parts, index),
         "drawing" => cw::export::drawing::cabinet_svg(
             &p,
             &r.build,

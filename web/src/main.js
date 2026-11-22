@@ -255,6 +255,17 @@ function renderProps() {
         h("button", { onclick: startDrawing }, "Draw room"),
         h("button", { onclick: rectangleRoom }, "Rectangle"),
         project.room.walls.length ? h("button", { class: "danger", onclick: () => { project.room.walls = []; project.room.openings = []; selWall = null; recompute(); } }, "Remove") : null),
+      h("h3", {}, "CNC"),
+      h("div", { class: "grid2" },
+        field("Pass depth", project.cnc, "pass_depth"), field("Into spoilboard", project.cnc, "through"),
+        field("Safe Z", project.cnc, "safe_z"), field("Tab height", project.cnc, "tab_height"),
+        field("Tab length", project.cnc, "tab_length"), field("Tabs below m²", project.cnc, "tab_area")),
+      ...[["Router", project.cnc.router], ["Groove cutter", project.cnc.groove_router], ...project.cnc.drills.map((t) => [t.name, t])].map(([label, t]) =>
+        h("div", { class: "tool" },
+          h("div", { class: "row" }, h("b", { class: "grow" }, label)),
+          h("div", { class: "grid4" },
+            field("T", t, "number", "int"), field("Ø", t, "dia"), field("rpm", t, "rpm"),
+            t.feed > 0 || label === "Router" || label === "Groove cutter" ? field("Feed", t, "feed") : field("Plunge", t, "plunge")))),
       h("h3", {}, "Worktop"),
       h("div", { class: "grid2" }, field("Thickness", s, "worktop_thickness"), field("Overhang", s, "worktop_overhang")),
       h("h3", {}, "Shaker"),
@@ -629,6 +640,7 @@ function renderSheets() {
       h("figcaption", {},
         h("span", {}, `#${i + 1} ${matOf(s.material).name} · ${s.placements.length} parts · ${s.yield_pct}%`),
         h("button", { onclick: () => saveFile(name + ".dxf", cw.export_one(json, "sheet_dxf", i)) }, "DXF"),
+        h("button", { onclick: () => saveFile(name + ".nc", cw.export_one(json, "sheet_nc", i)) }, "NC"),
         h("button", { onclick: () => saveFile(name + ".svg", svg) }, "SVG"))));
   });
   if (report.nesting.oversize.length)
