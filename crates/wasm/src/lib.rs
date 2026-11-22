@@ -95,3 +95,15 @@ pub fn fill_wall(json: &str, wall: usize, tier: &str) -> Result<String, JsError>
     }
     serde_json::to_string(&p).map_err(|e| JsError::new(&e.to_string()))
 }
+
+/// Replace the room with the outline found in a DXF floor plan.
+/// Returns `{"project": <json>, "info": "<walls, units, loops>"}`.
+#[wasm_bindgen]
+pub fn import_room_dxf(json: &str, dxf: &str) -> Result<String, JsError> {
+    let mut p = project(json)?;
+    let (room, info) = cw::import_dxf::room_from_dxf(dxf).map_err(|e| JsError::new(&e))?;
+    let height = p.room.height;
+    let thickness = p.room.thickness;
+    p.room = cw::room::Room { height, thickness, ..room };
+    serde_json::to_string(&serde_json::json!({ "project": p, "info": info })).map_err(|e| JsError::new(&e.to_string()))
+}

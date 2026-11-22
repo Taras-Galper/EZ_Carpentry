@@ -24,6 +24,12 @@ Every push builds `casework` for Windows and Linux: Actions → latest run → A
 
 **Room.** *Draw room* (top of the left panel; switches to Plan) and click the inside corners (snaps to a 10 mm grid and 45° directions; Backspace removes the last corner); click the first corner, double-click, or press Enter to finish. *Rectangle* starts from a box. Drag the square handles to move corners. Click a wall's length label (or the wall) to select it: set its length, add doors and windows, or **fill it with cabinets** (base, wall, or both). Filling packs standard widths (1000, 900, 800, 600, 500, 450, 400, 300), keeps clear of doors, windows, corners and cabinets already there, and closes gaps against walls or cabinets with a filler (gaps beside doors and windows stay open). The same layout runs from the CLI (`casework fill`).
 
+**DXF floor plan.** *DXF plan* (or `casework import-room`) reads LINE, LWPOLYLINE and POLYLINE outlines (arcs, text and dimensions are ignored), joins lines into closed loops, and takes the largest — or, when walls are drawn with both faces, the inside face. Units come from `$INSUNITS`, else are guessed from the size (m / cm / mm). Doors and windows are added afterwards on the walls.
+
+**Projects, presets, defaults.** Projects are kept in this browser (*Projects*: open, copy, delete); *Save* / *Open* move them as `project.json` files. ★ on a cabinet saves it as a preset under *My cabinets*. *Save as shop defaults* (Project panel) stores materials, prices, CNC tools and construction settings for every new project. Materials can be added, and deleted when no cabinet uses them.
+
+**Checks.** Warnings (status bar, packet cover) for cabinets overlapping at the same height, cabinets through a wall, and doors hinged hard against a side wall (they need a filler). *Fill* leaves a 50 mm filler where a run meets a side wall for the same reason.
+
 **Moving.** Select a cabinet to get a move gizmo at its bottom-front centre; its arrows follow the cabinet's own width, depth and height, in 10 mm steps. The X / Y / Z / ↻ box under the 3D view takes exact values, or `+n` / `-n` to move by n (`=-n` for a negative coordinate). Arrow keys nudge 10 mm (Shift: 100 mm). Dragging a cabinet near any wall, angled or not, turns it to face the room and backs it onto the wall.
 
 **Phones.** Below 760 px wide the view fills the screen; *Cabinets* and *Edit* at the bottom open slide-up panels (the add buttons and cabinet list; properties of the selected cabinet or wall), *⋯* holds New / Open / Save and the exports, and 3D / Plan / Front float over the view. One finger rotates in 3D and pans in Plan / Front, two fingers zoom and pan. Room drawing works by tapping; tapping near the first corner closes the room.
@@ -63,6 +69,7 @@ casework sample > kitchen.json
 casework summary kitchen.json
 casework walls kitchen.json                       # list walls with lengths and rotations
 casework fill kitchen.json 2 both                 # fill wall 2 with base + wall cabinets (base | wall | both)
+casework import-room kitchen.json plan.dxf         # room outline from a DXF floor plan
 casework export kitchen.json -o out/          # folder of files
 casework export kitchen.json --zip kitchen.zip
 ```

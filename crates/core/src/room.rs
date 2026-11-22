@@ -147,6 +147,8 @@ const WALL_DEPTH: f64 = 320.0;
 const WALL_HEIGHT: f64 = 720.0;
 const WALL_ELEVATION: f64 = 1450.0;
 const WIDTHS: [f64; 8] = [1000.0, 900.0, 800.0, 600.0, 500.0, 450.0, 400.0, 300.0];
+/// Filler left where a run meets a side wall (door clearance, scribing).
+const WALL_FILLER: f64 = 50.0;
 /// Leftovers narrower than this are left as a gap.
 const MIN_FILLER: f64 = 20.0;
 
@@ -285,19 +287,36 @@ pub fn fill_wall(project: &Project, wi: usize, tier: Tier) -> Result<Vec<Cabinet
             }
             continue;
         }
-        let widths = pack(len);
+        // Where the run meets a side wall, leave a filler of at least
+        // WALL_FILLER so doors and drawers clear the wall (and it can be
+        // scribed); gaps beside doors and windows stay open.
+        let (wall_a, wall_b) = (a <= 1.0, b >= w.len - 1.0);
+        let reserve = |on: bool| if on { WALL_FILLER } else { 0.0 };
+        let widths = pack(len - reserve(wall_a) - reserve(wall_b));
         let used: f64 = widths.iter().sum();
-        let left = len - used;
-        // Leftover goes into a filler at the end that meets a wall or
-        // obstacle; the wall end gets it when both ends are bounded.
+        let left = len - used - reserve(wall_a) - reserve(wall_b);
+        // Leftover joins a wall filler (start first); otherwise it goes to
+        // the end that is not an opening.
+        let (mut fa, mut fb) = (reserve(wall_a), reserve(wall_b));
+        if left >= MIN_FILLER || fa + fb > 0.0 {
+            if wall_a {
+                fa += left;
+            } else if wall_b {
+                fb += left;
+            } else if !at_opening(a) && at_opening(b) {
+                fa += left;
+            } else if !at_opening(b) {
+                fb += left;
+            } else if !at_opening(a) {
+                fa += left;
+            }
+        }
         let mut t = a;
-        // Filler at the start only when the start meets the wall end and
-        // the far end does not, or when the far end is an opening.
-        let filler_first = left >= MIN_FILLER && !at_opening(a) && ((a <= 1.0 && b < w.len - 1.0) || at_opening(b));
-        let filler_last = left >= MIN_FILLER && !filler_first && !at_opening(b);
-        if filler_first {
-            out.push(filler(project, &out, &w, t, left, tier, height, elev, depth, style));
-            t += left;
+        if fa >= MIN_FILLER {
+            out.push(filler(project, &out, &w, t, fa, tier, height, elev, depth, style));
+            t += fa;
+        } else {
+            t += fa;
         }
         for &cw in &widths {
             let (x, z) = w.point(t, 0.0);
@@ -328,8 +347,8 @@ pub fn fill_wall(project: &Project, wi: usize, tier: Tier) -> Result<Vec<Cabinet
             out.push(c);
             t += cw;
         }
-        if filler_last {
-            out.push(filler(project, &out, &w, t, left, tier, height, elev, depth, style));
+        if fb >= MIN_FILLER {
+            out.push(filler(project, &out, &w, t, fb, tier, height, elev, depth, style));
         }
     }
     Ok(out)
@@ -436,9 +455,10 @@ mod tests {
         // sample: wall cabinets either side of the window over the sink
         let p = sample_kitchen();
         let cabs = fill_wall(&p, 0, Tier::Wall).unwrap();
-        assert!(cabs.iter().all(|c| c.kind != CabinetKind::Filler), "{:?}", cabs.iter().map(|c| (&c.id, c.x, c.width)).collect::<Vec<_>>());
-        // the free end of the wall (2600..3200) gets a 600 wall cabinet
-        assert_eq!(cabs.iter().map(|c| (c.x, c.width)).collect::<Vec<_>>(), vec![(2600.0, 600.0)]);
+        // beside the window: no fillers; the free end of the wall (2650..3200)
+        // gets a 500 cabinet and a 50 filler against the side wall
+        assert_eq!(cabs.iter().map(|c| (c.x, c.width)).collect::<Vec<_>>(), vec![(2650.0, 500.0), (3150.0, 50.0)]);
+        assert_eq!(cabs[1].kind, CabinetKind::Filler);
     }
 
     #[test]

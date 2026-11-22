@@ -477,7 +477,7 @@ pub fn sample_kitchen() -> Project {
         crate::room::Opening {
             wall: 0,
             kind: crate::room::OpeningKind::Window,
-            offset: 1250.0,
+            offset: 1300.0,
             width: 700.0,
             height: 1150.0,
             sill: 1000.0,
@@ -503,9 +503,24 @@ pub fn sample_kitchen() -> Project {
             blind_side: BlindSide::Right,
             blind_width: top_depth + 20.0,
             drawers: vec![],
-            ..base("b3", "Blind corner", 1200.0)
+            ..base("b3", "Blind corner", 1150.0)
         },
     ];
+    // 50 mm filler at the left wall so the pantry's left door can open fully.
+    cabs.insert(
+        0,
+        Cabinet {
+            id: "f1".into(),
+            name: "Filler".into(),
+            kind: CabinetKind::Filler,
+            width: 50.0,
+            height: 2200.0,
+            depth: 580.0,
+            doors: 0,
+            shelves: 0,
+            ..Cabinet::default()
+        },
+    );
     let mut x = 0.0;
     for c in cabs.iter_mut() {
         c.x = x;
@@ -528,7 +543,7 @@ pub fn sample_kitchen() -> Project {
         z += cabs.last().map(|c| c.width).unwrap_or(0.0);
     }
     // Wall cabinets either side of the window.
-    for (id, x, w) in [("w1", 600.0, 600.0), ("w3", 2000.0, 600.0)] {
+    for (id, x, w) in [("w1", 650.0, 600.0), ("w3", 2050.0, 600.0)] {
         cabs.push(Cabinet { x, ..wall(id, w) });
     }
     if let Some(w3) = cabs.iter_mut().find(|c| c.id == "w3") {

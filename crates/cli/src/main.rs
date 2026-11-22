@@ -5,6 +5,7 @@
 //!   casework summary <project.json>
 //!   casework walls <project.json>
 //!   casework fill <project.json> <wall> [base|wall|both] [-o OUT.json]
+//!   casework import-room <project.json> <plan.dxf>
 
 use casework_core as cw;
 use std::{fs, path::PathBuf, process::exit};
@@ -90,6 +91,16 @@ fn main() {
             fs::write(&out, serde_json::to_string_pretty(&p).unwrap()).unwrap_or_else(|e| die(e));
             println!("{} cabinets added -> {}", p.cabinets.len() - before, out.display());
         }
+        Some("import-room") => {
+            let path = args.get(1).unwrap_or_else(|| die("missing project.json"));
+            let plan = args.get(2).unwrap_or_else(|| die("missing plan.dxf"));
+            let mut p = load(path);
+            let text = fs::read_to_string(plan).unwrap_or_else(|e| die(format!("{plan}: {e}")));
+            let (room, info) = cw::import_dxf::room_from_dxf(&text).unwrap_or_else(|e| die(e));
+            p.room = cw::room::Room { height: p.room.height, thickness: p.room.thickness, ..room };
+            fs::write(path, serde_json::to_string_pretty(&p).unwrap()).unwrap_or_else(|e| die(e));
+            println!("room imported: {info}");
+        }
         Some("export") => {
             let path = args.get(1).unwrap_or_else(|| die("missing project.json"));
             let mut out = PathBuf::from("casework-out");
@@ -124,7 +135,7 @@ fn main() {
             }
         }
         _ => {
-            eprintln!("usage:\n  casework sample > kitchen.json\n  casework export kitchen.json [-o DIR] [--zip FILE]\n  casework summary kitchen.json\n  casework walls kitchen.json\n  casework fill kitchen.json <wall> [base|wall|both] [-o OUT.json]");
+            eprintln!("usage:\n  casework sample > kitchen.json\n  casework export kitchen.json [-o DIR] [--zip FILE]\n  casework summary kitchen.json\n  casework walls kitchen.json\n  casework fill kitchen.json <wall> [base|wall|both] [-o OUT.json]\n  casework import-room kitchen.json plan.dxf");
             exit(2)
         }
     }

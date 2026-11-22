@@ -18,7 +18,11 @@ const h = (tag, attrs = {}, ...kids) => {
   return e;
 };
 
-const STORE = "casework.project.v1";
+const STORE = "casework.project.v1"; // single-project key from earlier versions
+// Projects kept in this browser: index + one entry per project.
+const P_INDEX = "ezc.projects", P_CUR = "ezc.current", P_KEY = (id) => "ezc.p." + id;
+const DEFAULTS = "ezc.defaults", PRESETS = "ezc.presets";
+let projectId = null;
 let project, report, selected = null, tab = "3d", showFronts = true;
 let selWall = null;   // index of the selected wall, or null
 let drawing = null;   // { pts: [[x, z]...], cursor: [x, z] } while drawing a room
@@ -47,11 +51,72 @@ function openSheet(name) {
 const closeSheetOnPhone = () => { if (phone.matches) openSheet(null); };
 
 // ---------- persistence ----------
+const lsGet = (k, d = null) => { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch { return d; } };
+const lsSet = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch { return false; } };
+const lsDel = (k) => { try { localStorage.removeItem(k); } catch {} };
+const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+function projectIndex() { return lsGet(P_INDEX, []); }
 function saveLocal() {
-  try { localStorage.setItem(STORE, JSON.stringify(project)); } catch {}
+  if (!projectId) projectId = newId();
+  lsSet(P_KEY(projectId), project);
+  const idx = projectIndex().filter((e) => e.id !== projectId);
+  idx.unshift({ id: projectId, name: project.name, updated: Date.now(), cabinets: project.cabinets.length });
+  lsSet(P_INDEX, idx);
+  lsSet(P_CUR, projectId);
 }
 function loadLocal() {
-  try { const s = localStorage.getItem(STORE); return s ? JSON.parse(s) : null; } catch { return null; }
+  // move a project saved by an earlier version into the list
+  const old = lsGet(STORE);
+  if (old && !projectIndex().length) { projectId = newId(); project = old; saveLocal(); lsDel(STORE); }
+  const id = lsGet(P_CUR);
+  const p = id && lsGet(P_KEY(id));
+  if (p) { projectId = id; return p; }
+  return null;
+}
+// Switch to another project: fresh id unless opening a stored one, history cleared.
+function useProject(p, id = null) {
+  project = migrate(p);
+  projectId = id || newId();
+  undoStack.length = 0; redoStack.length = 0; lastSnap = null;
+  selected = null; selWall = null; framed = false;
+  recompute();
+}
+// Shop defaults (materials, prices, CNC, construction) applied to new projects.
+function freshProject() {
+  const p = JSON.parse(cw.sample_project());
+  const d = lsGet(DEFAULTS);
+  p.cabinets = []; p.name = "Untitled";
+  if (d) Object.assign(p, { materials: d.materials, pricing: d.pricing, settings: d.settings, cnc: d.cnc }, d.room ? { room: { ...p.room, ...d.room } } : {});
+  return p;
+}
+function saveDefaults() {
+  const ok = lsSet(DEFAULTS, { materials: project.materials, pricing: project.pricing, settings: project.settings, cnc: project.cnc, room: { thickness: project.room.thickness, height: project.room.height } });
+  toast(ok ? "Saved as shop defaults" : "Browser storage unavailable");
+}
+function openProjects() {
+  const dlg = $("#projects"); dlg.replaceChildren();
+  const fmt = (t) => new Date(t).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+  const close = () => { dlg.hidden = true; };
+  const rows = projectIndex().map((e) => {
+    const del = h("button", { class: "danger" }, "Delete");
+    del.onclick = () => {
+      if (del.dataset.armed) {
+        lsDel(P_KEY(e.id)); lsSet(P_INDEX, projectIndex().filter((x) => x.id !== e.id));
+        if (e.id === projectId) useProject(freshProject());
+        openProjects();
+      } else { del.dataset.armed = 1; del.textContent = "Delete?"; }
+    };
+    return h("tr", { class: e.id === projectId ? "sel" : "" },
+      h("td", {}, h("b", {}, e.name || "Untitled")), h("td", { class: "mute" }, `${e.cabinets ?? ""} cabinets`), h("td", { class: "mute" }, fmt(e.updated)),
+      h("td", { class: "n" },
+        h("button", { onclick: () => { const p = lsGet(P_KEY(e.id)); if (p) useProject(p, e.id); close(); } }, "Open"), " ",
+        h("button", { onclick: () => { const p = lsGet(P_KEY(e.id)); if (p) { p.name = (p.name || "Untitled") + " copy"; useProject(p); } close(); } }, "Copy"), " ",
+        del));
+  });
+  dlg.append(h("div", { class: "dlg" },
+    h("div", { class: "row" }, h("h2", { class: "grow" }, "Projects"), h("button", { onclick: close }, "Close")),
+    rows.length ? h("table", {}, h("tbody", {}, rows)) : h("p", { class: "mute" }, "—")));
+  dlg.hidden = false;
 }
 
 // ---------- files ----------
@@ -138,7 +203,7 @@ function recompute() {
 
 // ---------- cabinet presets ----------
 const uid = (p) => { let i = 1; while (project.cabinets.some((c) => c.id === p + i)) i++; return p + i; };
-const PRESETS = {
+const CAB_PRESETS = {
   Base: () => ({ kind: "base", name: "Base", width: 600, height: 870, depth: 560, toe_kick_height: 100, toe_kick_depth: 60, doors: 1, drawers: [160], shelves: 1 }),
   Drawers: () => ({ kind: "base", name: "Drawer base", width: 600, height: 870, depth: 560, toe_kick_height: 100, toe_kick_depth: 60, doors: 0, drawers: [180, 300, 290], shelves: 0 }),
   Wall: () => ({ kind: "wall", name: "Wall", width: 600, height: 720, depth: 320, elevation: 1450, toe_kick_height: 0, doors: 1, drawers: [], shelves: 2 }),
@@ -152,15 +217,15 @@ const PRESETS = {
   Corner: () => ({ kind: "base", name: "Blind corner", width: 1200, height: 870, depth: 560, toe_kick_height: 100, toe_kick_depth: 60, doors: 1, drawers: [], shelves: 1, blind_side: "right", blind_width: 600 }),
   Tall: () => ({ kind: "tall", name: "Tall", width: 600, height: 2200, depth: 580, toe_kick_height: 100, toe_kick_depth: 60, doors: 2, drawers: [], shelves: 5 }),
 };
-function addCabinet(type) {
-  const p = PRESETS[type]();
-  const prefix = { base: "b", wall: "w", tall: "t", dishwasher: "d", appliance: "a", filler: "f" }[p.kind];
+function addCabinet(type, preset = null) {
+  const p = preset ? structuredClone(preset) : CAB_PRESETS[type]();
+  const prefix = { base: "b", wall: "w", tall: "t", dishwasher: "d", appliance: "a", filler: "f" }[p.kind] || "c";
   // Append to the back-wall run after anything at the same height (a tall
   // cabinet blocks both base and wall units); match the project's front style.
   const elev = p.elevation || 0, top = elev + p.height;
   const same = project.cabinets.filter((c) => !c.rotation && c.elevation < top && c.elevation + c.height > elev);
   const x = same.reduce((m, c) => Math.max(m, c.x + c.width), 0);
-  const style = project.cabinets.find((c) => c.id === selected)?.door_style || project.cabinets[0]?.door_style || "slab";
+  const style = p.door_style || project.cabinets.find((c) => c.id === selected)?.door_style || project.cabinets[0]?.door_style || "slab";
   const c = {
     id: uid(prefix), x, z: 0, elevation: 0, rotation: 0, hinge_side: "left", handles: true, door_style: style,
     carcass_material: "carcass", back_material: "back", front_material: "front", drawer_material: "drawer",
@@ -189,7 +254,28 @@ const ICONS = {
   Wardrobe: '<rect x="3" y="1" width="22" height="30"/><line x1="3" y1="7" x2="25" y2="7"/><line x1="6" y1="10" x2="22" y2="10" class="t"/><path d="M14 10 v2 l-4 4 h8 l-4 -4" fill="none"/><rect x="3" y="31" width="22" height="2" class="k"/>',
   Open: '<rect x="3" y="3" width="22" height="16"/><line x1="3" y1="8.5" x2="25" y2="8.5"/><line x1="3" y1="14" x2="25" y2="14"/><line x1="0" y1="2" x2="28" y2="2" class="t"/>',
 };
+// Presets: whole cabinets saved by the user, shown under "My cabinets".
+const PLACEMENT = ["id", "x", "z", "rotation"];
+function savePreset(c) {
+  const cab = Object.fromEntries(Object.entries(c).filter(([k]) => !PLACEMENT.includes(k)));
+  const list = lsGet(PRESETS, []).filter((p) => p.name !== c.name);
+  list.push({ name: c.name, cab });
+  toast(lsSet(PRESETS, list) ? `Preset "${c.name}" saved` : "Browser storage unavailable");
+  renderPresets();
+}
+function renderPresets() {
+  const el = $("#presets"); el.replaceChildren();
+  const list = lsGet(PRESETS, []);
+  if (!list.length) return;
+  el.append(h("h3", {}, "My cabinets"));
+  for (const pr of list) {
+    el.append(h("div", { class: "preset" },
+      h("button", { class: "grow", onclick: () => { addCabinet(null, pr.cab); closeSheetOnPhone(); } }, pr.name),
+      h("button", { title: "Remove preset", onclick: () => { lsSet(PRESETS, lsGet(PRESETS, []).filter((x) => x.name !== pr.name)); renderPresets(); } }, "×")));
+  }
+}
 function renderPalette() {
+  renderPresets();
   const el = $("#palette");
   for (const [type, body] of Object.entries(ICONS)) {
     const b = h("button", { title: `Add ${type.toLowerCase()} cabinet`, "data-add": type, onclick: () => { addCabinet(type); closeSheetOnPhone(); } });
@@ -277,12 +363,18 @@ function renderProps() {
       h("div", { class: "grid2" }, field("Thickness", s, "worktop_thickness"), field("Overhang", s, "worktop_overhang")),
       h("h3", {}, "Shaker"),
       h("div", { class: "grid2" }, field("Frame width", s, "shaker_frame"), field("Groove", s, "shaker_groove"), field("Routed depth", s, "routed_depth")),
-      h("h3", {}, "Materials"),
-      ...project.materials.map((m) => h("div", { class: "mat" },
-        h("div", { class: "grid2" },
-          field("Name", m, "name", "text"), field("Colour", m, "color", "text"),
-          field("Thickness", m, "thickness"), field("Grain", m, "grain", "check"),
-          field("Sheet L", m, "sheet_length"), field("Sheet W", m, "sheet_width")))),
+      h("div", { class: "row" }, h("h3", { class: "grow" }, "Materials"), h("button", { onclick: addMaterial }, "+ Material")),
+      ...project.materials.map((m) => {
+        const used = materialUsed(m.id);
+        return h("div", { class: "mat" },
+          h("div", { class: "grid2" },
+            field("Name", m, "name", "text"), field("Colour", m, "color", "text"),
+            field("Thickness", m, "thickness"), field("Grain", m, "grain", "check"),
+            field("Sheet L", m, "sheet_length"), field("Sheet W", m, "sheet_width")),
+          h("div", { class: "row" }, h("span", { class: "grow mute" }, m.id),
+            h("button", { class: "danger", disabled: used, title: used ? "In use" : null, onclick: () => { project.materials = project.materials.filter((x) => x !== m); recompute(); } }, "Delete")));
+      }),
+      h("div", { class: "row defaults" }, h("button", { onclick: saveDefaults }, "Save as shop defaults")),
     );
     return;
   }
@@ -297,6 +389,7 @@ function renderProps() {
         project.cabinets.push(d); selected = d.id; recompute();
       } }, "Duplicate"),
       h("button", { title: "Rotate 90° (R)", onclick: () => rotateCabinet(c) }, "⟳"),
+      h("button", { title: "Save as preset", onclick: () => savePreset(c) }, "★"),
       h("button", { class: "danger", onclick: () => {
         project.cabinets = project.cabinets.filter((x) => x !== c); selected = null; recompute();
       } }, "Delete")),
@@ -455,6 +548,16 @@ function showDial(v) {
     const input = $(`#dial input[data-k=${k}]`);
     if (input && document.activeElement !== input) input.value = fmtDial(val);
   }
+}
+
+function materialUsed(id) {
+  if (id === "top" && project.settings.worktop_thickness > 0) return true;
+  return project.cabinets.some((c) => [c.carcass_material, c.back_material, c.front_material, c.drawer_material, c.panel_material].includes(id));
+}
+function addMaterial() {
+  let i = 1; while (project.materials.some((m) => m.id === "m" + i)) i++;
+  project.materials.push({ id: "m" + i, name: "New material", thickness: 18, sheet_length: 2800, sheet_width: 2070, grain: false, color: "#dddddd", price: 0 });
+  recompute();
 }
 
 function renderStatus() {
@@ -1106,6 +1209,7 @@ function frame() {
 // float on the canvas while drawing.
 const ROOM_ICONS = {
   draw: '<path d="M4 26 V8 H16 V17 H25 V26 Z" fill="none"/><circle cx="4" cy="26" r="2" class="k"/><circle cx="4" cy="8" r="2" class="k"/><circle cx="16" cy="8" r="2" class="k"/><circle cx="16" cy="17" r="2" class="k"/><circle cx="25" cy="17" r="2" class="k"/>',
+  dxf: '<path d="M6 3 h12 l6 6 v20 h-18 Z" fill="none"/><path d="M18 3 v6 h6" fill="none"/><path d="M10 16 h9 v8 h-9 Z" fill="none" stroke-width="1.2"/>',
   rect: '<rect x="4" y="7" width="20" height="19" fill="none"/><circle cx="4" cy="7" r="2" class="k"/><circle cx="24" cy="7" r="2" class="k"/><circle cx="24" cy="26" r="2" class="k"/><circle cx="4" cy="26" r="2" class="k"/>',
 };
 function iconButton(label, icon, onclick, cls = "") {
@@ -1127,7 +1231,8 @@ function renderPlanTools() {
   } else {
     bar.append(
       iconButton("Draw room", ROOM_ICONS.draw, startDrawing, "room"),
-      iconButton("Rectangle", ROOM_ICONS.rect, rectangleRoom, "room"));
+      iconButton("Rectangle", ROOM_ICONS.rect, rectangleRoom, "room"),
+      iconButton("DXF plan", ROOM_ICONS.dxf, () => $("#dxffile").click(), "room"));
   }
 }
 function setView(v) {
@@ -1149,17 +1254,30 @@ function setView(v) {
 async function main() {
   await loadEngine();
   document.documentElement.dataset.engine = engine;
-  project = migrate(loadLocal() || JSON.parse(cw.sample_project()));
+  const stored = loadLocal();
+  project = migrate(stored || JSON.parse(cw.sample_project()));
   selected = null;
 
   renderPalette();
   $("#projbtn").onclick = () => { selected = null; selWall = null; recompute(); };
-  $("#new").onclick = () => { project = JSON.parse(cw.sample_project()); project.cabinets = []; project.name = "Untitled"; selected = null; recompute(); };
-  $("#sample").onclick = () => { project = JSON.parse(cw.sample_project()); selected = null; framed = false; recompute(); };
+  $("#new").onclick = () => useProject(freshProject());
+  $("#sample").onclick = () => useProject(JSON.parse(cw.sample_project()));
+  $("#projectsbtn").onclick = openProjects;
+  $("#dxffile").onchange = async (e) => {
+    const f = e.target.files[0]; e.target.value = ""; if (!f) return;
+    try {
+      const r = JSON.parse(cw.import_room_dxf(JSON.stringify(project), await f.text()));
+      project = r.project; selWall = null; selected = null;
+      if (view !== "plan") setView("plan");
+      commitRoom(); frame();
+      toast(r.info);
+    } catch (err) { toast(String(err.message || err)); }
+  };
+  $("#projects").addEventListener("click", (e) => { if (e.target.id === "projects") $("#projects").hidden = true; });
   $("#open").onclick = () => $("#file").click();
   $("#file").onchange = async (e) => {
     const f = e.target.files[0]; if (!f) return;
-    try { project = migrate(JSON.parse(await f.text())); cw.compute(JSON.stringify(project)); selected = null; framed = false; recompute(); }
+    try { const p = JSON.parse(await f.text()); cw.compute(JSON.stringify(migrate(p))); useProject(p); }
     catch (err) { toast("Not a valid project: " + (err.message || err)); }
     e.target.value = "";
   };

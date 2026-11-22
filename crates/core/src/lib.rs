@@ -2,7 +2,9 @@
 //!
 //! `Project` (JSON) -> `Report` (parts, hardware, nested sheets) -> exports.
 
+pub mod checks;
 pub mod export;
+pub mod import_dxf;
 pub mod model;
 pub mod nest;
 pub mod parts;
@@ -28,7 +30,8 @@ pub struct Report {
 }
 
 pub fn compute(project: &Project) -> Report {
-    let build = parts::build(project);
+    let mut build = parts::build(project);
+    checks::check(project, &mut build.warnings);
     let nesting = nest::nest(project, &build.parts);
     let mut sheets: Vec<(String, usize)> = vec![];
     for s in &nesting.sheets {
@@ -151,7 +154,7 @@ mod tests {
                 p.settings.back_mode = back_mode;
                 p.settings.plinth = plinth;
                 // a wardrobe adds a hat shelf joint
-                p.cabinets[0].hanging_rail = true;
+                p.cabinets.iter_mut().find(|c| c.id == "t1").unwrap().hanging_rail = true;
                 let r = compute(&p);
                 for c in p.cabinets.iter().filter(|c| c.kind.is_carcass()) {
                     let side = r.build.parts.iter().find(|q| q.id == format!("{}-side-l", c.id)).unwrap();
@@ -258,7 +261,7 @@ mod tests {
         // back run b1+b2+b3, return leg b4+b5
         let mut lens: Vec<f64> = tops.iter().map(|t| t.w).collect();
         lens.sort_by(|a, b| a.total_cmp(b));
-        assert_eq!(lens, vec![450.0 + 600.0 + 450.0, 600.0 + 800.0 + 1200.0]);
+        assert_eq!(lens, vec![450.0 + 600.0 + 450.0, 600.0 + 800.0 + 1150.0]);
         // world footprints touch but do not overlap
         let rect = |t: &parts::Part| {
             let c = p.cabinets.iter().find(|c| c.id == t.cabinet).unwrap();
@@ -385,12 +388,14 @@ mod tests {
         assert!(d1.iter().any(|q| q.name == "Toe kick"));
         assert!(r.build.placeholders.iter().any(|x| x.cabinet == "d1"));
         let back = r.build.parts.iter().find(|q| q.id == "d1-worktop").unwrap();
-        assert_eq!(back.w, 600.0 + 800.0 + 1200.0);
+        assert_eq!(back.w, 600.0 + 800.0 + 1150.0);
         // end panel on b6: depth covers the door, full height
         let e = r.build.parts.iter().find(|q| q.id == "b6-end-r").unwrap();
         assert_eq!((e.w, e.h), (560.0 + 19.0, 870.0));
         // filler and a fridge space added to the back run
-        p.cabinets.push(Cabinet { id: "f1".into(), kind: CabinetKind::Filler, width: 50.0, x: 3200.0, ..Cabinet::default() });
+        // widen the room so both fit beyond the corner cabinet
+        p.room = crate::room::Room::rectangle(4000.0, 2600.0);
+        p.cabinets.push(Cabinet { id: "f9".into(), kind: CabinetKind::Filler, width: 50.0, x: 3200.0, ..Cabinet::default() });
         p.cabinets.push(Cabinet {
             id: "a1".into(),
             name: "Fridge".into(),
@@ -403,16 +408,16 @@ mod tests {
         });
         let r = compute(&p);
         assert!(r.build.warnings.is_empty(), "{:?}", r.build.warnings);
-        let f1: Vec<_> = r.build.parts.iter().filter(|q| q.cabinet == "f1").collect();
+        let f1: Vec<_> = r.build.parts.iter().filter(|q| q.cabinet == "f9").collect();
         assert_eq!(f1.len(), 2, "strip + toe kick");
         assert!(r.build.parts.iter().all(|q| q.cabinet != "a1"), "appliance space cuts nothing");
         // filler (under-worktop height) extends the back worktop; the tall fridge space does not
         let back = r.build.parts.iter().find(|q| q.id == "d1-worktop").unwrap();
-        assert_eq!(back.w, 600.0 + 800.0 + 1200.0 + 50.0);
+        assert_eq!(back.w, 600.0 + 800.0 + 1150.0 + 50.0);
         let q = export::quote::quote(&p, &r);
         assert!(q.items.iter().all(|i| i.id != "a1"), "nothing to charge for an empty space");
         let files = export::files(&p, &r);
-        assert!(files.iter().all(|f| !f.0.starts_with("drawings/f1") && !f.0.starts_with("drawings/a1")));
+        assert!(files.iter().all(|f| !f.0.starts_with("drawings/f9") && !f.0.starts_with("drawings/a1")));
     }
 
     #[test]
@@ -456,7 +461,7 @@ mod tests {
     fn gcode_stays_on_sheet_and_cuts_every_part() {
         let mut p = sample_kitchen();
         p.settings.back_mode = BackMode::Grooved;
-        p.cabinets[0].door_style = DoorStyle::ShakerRouted;
+        p.cabinets.iter_mut().find(|c| c.id == "t1").unwrap().door_style = DoorStyle::ShakerRouted;
         let r = compute(&p);
         let cnc = &p.cnc;
         let rad = cnc.router.dia / 2.0;
@@ -545,7 +550,7 @@ mod tests {
     #[test]
     fn small_parts_get_tabs_and_face2_programs_exist() {
         let mut p = sample_kitchen();
-        p.cabinets[0].door_style = DoorStyle::ShakerRouted;
+        p.cabinets.iter_mut().find(|c| c.id == "t1").unwrap().door_style = DoorStyle::ShakerRouted;
         let r = compute(&p);
         let files = export::files(&p, &r);
         assert!(files.iter().any(|f| f.0.starts_with("nc/face2/t1-door1")));

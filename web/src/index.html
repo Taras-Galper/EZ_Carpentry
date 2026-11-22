@@ -24,8 +24,9 @@ aside{background:var(--panel);overflow:auto;min-height:0}
 #palette button{display:flex;flex-direction:column;align-items:center;gap:2px;padding:5px 0 4px;font-size:10px;letter-spacing:-.01em;color:var(--mute);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 #palette button:hover{color:var(--ink);background:#f3f1ec}
 #palette svg{display:block}
-#roombar{display:grid;grid-template-columns:1fr 1fr;gap:4px;padding:8px 6px 0}
-#roombar button{display:flex;align-items:center;justify-content:center;gap:6px;padding:4px 6px;font-size:12px;color:var(--ink)}
+#roombar{display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px;padding:8px 6px 0}
+#roombar button{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;padding:4px 2px;font-size:11px;color:var(--ink)}
+#roombar button.pri{grid-column:span 1}
 #roombar button svg{display:block;flex:none}
 #roombar button.pri{color:#fff}
 #v-3d.drawing canvas{cursor:crosshair}
@@ -73,6 +74,13 @@ figcaption{display:flex;gap:6px;align-items:center;padding:6px 8px;border-top:1p
 #plantools button.pri{background:var(--acc);color:#fff}#plantools button.pri:disabled{background:#9db7e8;border-color:#9db7e8}
 .fill{display:grid;grid-template-columns:1.3fr 1fr 1fr;gap:6px}
 .grow{flex:1}
+#presets{padding:0 6px}#presets:empty{display:none}#presets h3{margin:8px 2px 4px}
+.preset{display:flex;gap:4px;margin-bottom:4px}.preset button.grow{text-align:left}
+.defaults{margin-top:10px}
+#projects{position:fixed;inset:0;background:rgba(0,0,0,.25);display:flex;align-items:flex-start;justify-content:center;z-index:50;padding:8vh 12px}
+#projects[hidden]{display:none!important}
+.dlg{background:#fff;border-radius:10px;box-shadow:0 10px 40px rgba(0,0,0,.25);width:min(640px,100%);max-height:80vh;overflow:auto;padding:14px 16px}
+.dlg h2{margin:0;font-size:18px}.dlg table{margin-top:10px}.dlg td{white-space:nowrap}.dlg tr.sel td{background:#e7effd}
 #coords{color:var(--mute);font-variant-numeric:tabular-nums;padding:6px;white-space:pre}
 button:disabled{opacity:.4;cursor:default}
 #v-quote{display:grid;grid-template-columns:1fr 300px}
@@ -158,16 +166,17 @@ footer#status{display:flex;gap:16px;padding:6px 12px;border-top:1px solid var(--
 <body>
 <header>
   <span class="logo">EZ Carpentry</span>
-  <div class="menu"><button id="new">New</button><button id="sample">Sample</button><button id="open">Open</button><button id="save">Save</button></div>
+  <div class="menu"><button id="new">New</button><button id="projectsbtn">Projects</button><button id="open">Open</button><button id="save">Save</button><button id="sample">Sample</button></div>
   <button id="undo" title="Undo (Ctrl+Z)" disabled>↶</button>
   <button id="redo" title="Redo (Ctrl+Y)" disabled>↷</button>
   <input id="file" type="file" accept=".json,application/json" hidden>
+  <input id="dxffile" type="file" accept=".dxf" hidden>
   <span class="sp"></span>
   <div class="menu"><button id="packet">Shop packet</button><button id="labels">Labels</button><button id="csv">Cut list</button><button id="obj">OBJ</button><button id="zip" class="pri">Export CNC</button></div>
   <button id="more" class="m-only" aria-label="Menu" aria-expanded="false">⋯</button>
 </header>
 <main>
-  <aside id="left"><div id="roombar"></div><div id="palette"></div><button id="projbtn">Project &amp; materials</button><ul id="list"></ul></aside>
+  <aside id="left"><div id="roombar"></div><div id="palette"></div><div id="presets"></div><button id="projbtn">Project &amp; materials</button><ul id="list"></ul></aside>
   <section id="center">
     <nav id="tabs">
       <button data-tab="3d">3D</button><button data-tab="parts">Parts</button><button data-tab="sheets">Sheets</button><button data-tab="hw">Hardware</button><button data-tab="drawings">Drawings</button><button data-tab="quote">Quote</button>
@@ -192,6 +201,7 @@ footer#status{display:flex;gap:16px;padding:6px 12px;border-top:1px solid var(--
 <footer id="status"></footer>
 <nav id="mbar" class="m-only"><button data-sheet="left">Cabinets</button><button data-sheet="right">Edit <b id="mbsel"></b></button></nav>
 <div id="toast"></div>
+<div id="projects" hidden></div>
 <script>/*BUNDLE*/</script>
 </body>
 </html>
