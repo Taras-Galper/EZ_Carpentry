@@ -366,6 +366,11 @@ pub struct Cabinet {
     pub cutout_depth: f64,
     pub cutout_radius: f64,
     pub cutout_setback: f64,
+    /// Worktop overhang behind the cabinet (seating at an island or
+    /// peninsula); the largest in a run applies.
+    pub worktop_back: f64,
+    /// Cabinets with the same group move and rotate together (islands).
+    pub group: String,
     /// Drawer front heights, top to bottom. Doors fill what remains.
     pub drawers: Vec<f64>,
     pub shelves: u32,
@@ -412,6 +417,8 @@ impl Default for Cabinet {
             cutout_depth: 0.0,
             cutout_radius: 0.0,
             cutout_setback: 60.0,
+            worktop_back: 0.0,
+            group: String::new(),
             drawers: vec![],
             shelves: 1,
             carcass_material: "carcass".into(),

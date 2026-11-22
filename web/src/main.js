@@ -220,6 +220,98 @@ const CAB_PRESETS = {
   Oven: () => ({ kind: "tall", name: "Oven housing", width: 600, height: 2200, depth: 580, toe_kick_height: 100, toe_kick_depth: 60, doors: 1, drawers: [375, 375], shelves: 1, housing_height: 590, housing_elevation: 850 }),
   Tall: () => ({ kind: "tall", name: "Tall", width: 600, height: 2200, depth: 580, toe_kick_height: 100, toe_kick_depth: 60, doors: 2, drawers: [], shelves: 5 }),
 };
+// ---------- islands and peninsulas: cabinets that move together ----------
+const GROUPS = { Island: true, Peninsula: true };
+const groupOf = (c) => (c.group ? project.cabinets.filter((o) => o.group === c.group) : [c]);
+// Move/rotate c to (x, z, elevation, rotation), carrying its group along rigidly.
+function placeCabinet(c, x, z, elev = c.elevation, rot = c.rotation) {
+  const dr = rot - c.rotation, de = elev - c.elevation;
+  const r = THREE.MathUtils.degToRad(dr), sn = Math.sin(r), cs = Math.cos(r);
+  const [cx0, cz0] = [c.x, c.z]; // c moves inside the loop
+  for (const m of groupOf(c)) {
+    const vx = m.x - cx0, vz = m.z - cz0;
+    m.x = Math.round((x + vx * cs + vz * sn) * 10) / 10;
+    m.z = Math.round((z - vx * sn + vz * cs) * 10) / 10;
+    m.elevation = Math.max(0, m.elevation + de);
+    m.rotation = ((m.rotation + dr) % 360 + 540) % 360 - 180;
+  }
+}
+// Show c's group at a trial placement without committing it.
+function previewGroup(c, x, z, y, rot = c.rotation) {
+  const dr = rot - c.rotation, r = THREE.MathUtils.degToRad(dr), sn = Math.sin(r), cs = Math.cos(r);
+  for (const m of groupOf(c)) {
+    const g = groups.get(m.id); if (!g) continue;
+    const vx = m.x - c.x, vz = m.z - c.z;
+    g.position.set(x + vx * cs + vz * sn, m.elevation + (y - c.elevation), z - vx * sn + vz * cs);
+    g.rotation.y = THREE.MathUtils.degToRad(m.rotation + dr);
+  }
+}
+function addGroup(type) {
+  const n = 3, w = 600, d = 560, seat = 300;
+  const gid = uid(type.toLowerCase());
+  const style = project.cabinets[0]?.door_style || "slab";
+  let origin, rot, firstFree = false;
+  // Peninsula: from the middle of the first wall with room for it, into the room.
+  if (type === "Peninsula") {
+    search: for (const wl of roomWalls(project.room)) {
+      const r = (Math.atan2(-wl.normal[1], wl.normal[0]) * 180) / Math.PI;
+      const fd = [Math.sin(THREE.MathUtils.degToRad(r)), Math.cos(THREE.MathUtils.degToRad(r))];
+      // fd runs back along the wall (-t), so the seating side is toward +t: positions from the middle outwards
+      const ts = [];
+      for (let k = 0; k * 100 < wl.len; k++) ts.push(wl.len / 2 + (k % 2 ? 1 : -1) * Math.ceil(k / 2) * 100);
+      const ops = project.room.openings.filter((op) => op.wall === wl.i);
+      for (const tc of ts) {
+        const p = wallPoint(wl, tc, 0);
+        const o = [p[0] - fd[0] * (d / 2), p[1] - fd[1] * (d / 2)];
+        const probe = { kind: "base", width: n * w, depth: d + seat, x: o[0] - fd[0] * seat, z: o[1] - fd[1] * seat, rotation: r };
+        const f = footprint(probe);
+        const [ta] = wallLocal(wl, f.x0, f.z0), [tb] = wallLocal(wl, f.x1, f.z1);
+        const lo = Math.min(ta, tb), hi = Math.max(ta, tb);
+        if (lo < 50 || hi > wl.len - 50) continue;
+        if (ops.some((op) => op.offset < hi + 100 && op.offset + op.width > lo - 100)) continue;
+        const hit = project.cabinets.some((q) => { const g = footprint(q); return g.x0 < f.x1 - 2 && g.x1 > f.x0 + 2 && g.z0 < f.z1 - 2 && g.z1 > f.z0 + 2; });
+        if (!hit) { origin = o; rot = Math.round(r * 1000) / 1000; break search; }
+      }
+    }
+  }
+  if (!origin) {
+    // Island (or no wall free): centred in the room.
+    const ws = project.room.walls;
+    const cx = ws.length ? (Math.min(...ws.map((q) => q[0])) + Math.max(...ws.map((q) => q[0]))) / 2 : 1500;
+    const cz = ws.length ? (Math.min(...ws.map((q) => q[1])) + Math.max(...ws.map((q) => q[1]))) / 2 : 1500;
+    origin = [cx - (n * w) / 2, cz - d / 2]; rot = 0; firstFree = true;
+    // nearest free spot to the centre (with the seating strip behind), 100 mm grid
+    const clear = 900; // walkway kept to walls and other cabinets
+    const free = (ox, oz) => {
+      const f = { x0: ox - clear, x1: ox + n * w + clear, z0: oz - seat - clear, z1: oz + d + clear };
+      const inRoom = !ws.length || (ox - clear >= Math.min(...ws.map((q) => q[0])) && ox + n * w + clear <= Math.max(...ws.map((q) => q[0]))
+        && oz - seat - clear >= Math.min(...ws.map((q) => q[1])) && oz + d + clear <= Math.max(...ws.map((q) => q[1])));
+      return inRoom && !project.cabinets.some((q) => { const g = footprint(q); return g.x0 < f.x1 && g.x1 > f.x0 && g.z0 < f.z1 && g.z1 > f.z0; });
+    };
+    let best = null;
+    for (let i = -20; i <= 20; i++) for (let j = -20; j <= 20; j++) {
+      const ox = origin[0] + i * 100, oz = origin[1] + j * 100;
+      if (free(ox, oz) && (!best || i * i + j * j < best[2])) best = [ox, oz, i * i + j * j];
+    }
+    if (best) origin = [best[0], best[1]];
+  }
+  const r = THREE.MathUtils.degToRad(rot), ux = [Math.cos(r), -Math.sin(r)];
+  for (let k = 0; k < n; k++) {
+    const c = {
+      ...CAB_PRESETS.Base(), name: type, id: uid("b"), group: gid,
+      x: Math.round((origin[0] + ux[0] * w * k) * 10) / 10, z: Math.round((origin[1] + ux[1] * w * k) * 10) / 10,
+      rotation: rot, elevation: 0, door_style: style, handles: true, back_finished: true, worktop_back: seat,
+      hinge_side: k === 0 && !firstFree ? "right" : "left",
+      end_left: k === 0 && firstFree, end_right: k === n - 1,
+      carcass_material: "carcass", back_material: "back", front_material: "front", drawer_material: "drawer",
+    };
+    project.cabinets.push(c);
+    if (k === 0) selected = c.id;
+  }
+  project = JSON.parse(cw.normalize(JSON.stringify(project)));
+  recompute();
+}
+
 function addCabinet(type, preset = null) {
   const p = preset ? structuredClone(preset) : CAB_PRESETS[type]();
   const prefix = { base: "b", wall: "w", tall: "t", dishwasher: "d", appliance: "a", filler: "f" }[p.kind] || "c";
@@ -281,6 +373,8 @@ const ICONS = {
   Dishwasher: '<rect x="3" y="8" width="22" height="22"/><line x1="10" y1="11.5" x2="18" y2="11.5" class="t"/><rect x="3" y="30" width="22" height="3" class="k"/>',
   Fridge: '<rect x="6" y="3" width="16" height="30" stroke-dasharray="2.2 1.6"/><line x1="9" y1="9" x2="9" y2="14"/><line x1="9" y1="18" x2="9" y2="24"/>',
   Filler: '<rect x="11" y="8" width="6" height="22"/><rect x="11" y="30" width="6" height="3" class="k"/>',
+  Island: '<rect x="2" y="9" width="24" height="16" class="k"/><rect x="4" y="11" width="20" height="8"/><circle cx="8" cy="29" r="2"/><circle cx="14" cy="29" r="2"/><circle cx="20" cy="29" r="2"/>',
+  Peninsula: '<line x1="3" y1="2" x2="3" y2="32" class="t"/><rect x="3" y="10" width="22" height="14" class="k"/><rect x="3" y="12" width="20" height="8"/><circle cx="10" cy="28" r="2"/><circle cx="17" cy="28" r="2"/>',
   Wardrobe: '<rect x="3" y="1" width="22" height="30"/><line x1="3" y1="7" x2="25" y2="7"/><line x1="6" y1="10" x2="22" y2="10" class="t"/><path d="M14 10 v2 l-4 4 h8 l-4 -4" fill="none"/><rect x="3" y="31" width="22" height="2" class="k"/>',
   Open: '<rect x="3" y="3" width="22" height="16"/><line x1="3" y1="8.5" x2="25" y2="8.5"/><line x1="3" y1="14" x2="25" y2="14"/><line x1="0" y1="2" x2="28" y2="2" class="t"/>',
 };
@@ -308,7 +402,8 @@ function renderPalette() {
   renderPresets();
   const el = $("#palette");
   for (const [type, body] of Object.entries(ICONS)) {
-    const b = h("button", { title: `Add ${type.toLowerCase()} cabinet`, "data-add": type, onclick: () => { addCabinet(type); closeSheetOnPhone(); } });
+    const grp = GROUPS[type];
+    const b = h("button", { title: `Add ${type.toLowerCase()}${grp ? "" : " cabinet"}`, "data-add": type, onclick: () => { grp ? addGroup(type) : addCabinet(type); closeSheetOnPhone(); } });
     b.innerHTML = `<svg width="28" height="34" viewBox="0 0 28 34" fill="#fff" stroke="currentColor" stroke-width="1.3"><style>.k{fill:currentColor;opacity:.35;stroke:none}.t{stroke-width:2.2}</style>${body}</svg>`;
     b.append(type);
     el.append(b);
@@ -424,6 +519,8 @@ function renderProps() {
       h("button", { class: "danger", onclick: () => {
         project.cabinets = project.cabinets.filter((x) => x !== c); selected = null; recompute();
       } }, "Delete")),
+    c.group ? h("div", { class: "row" }, h("span", { class: "grow mute" }, `${c.group} · ${groupOf(c).length} cabinets`),
+      h("button", { onclick: () => { for (const m of groupOf(c)) m.group = ""; recompute(); } }, "Ungroup")) : null,
     field("Name", c, "name", "text"),
     field("Type", c, "kind", "select", KINDS),
     h("div", { class: "grid3" }, field("Width", c, "width"), field("Height", c, "height"), field("Depth", c, "depth")),
@@ -455,9 +552,10 @@ function renderProps() {
       field("Front style", c, "door_style", "select", [["slab", "Slab"], ["shaker", "Shaker"], ["shaker_routed", "Shaker routed"]]),
       field("Handles", c, "handles", "check")) : null,
     c.kind === "base" ? [
-      h("h3", {}, "Worktop cut-out"),
+      h("h3", {}, "Worktop"),
       h("div", { class: "grid2" },
-        field("Type", c, "cutout", "select", [["none", "None"], ["sink", "Sink"], ["hob", "Hob"]]),
+        field("Seating overhang", c, "worktop_back"), h("span"),
+        field("Cut-out", c, "cutout", "select", [["none", "None"], ["sink", "Sink"], ["hob", "Hob"]]),
         cut ? field("Front setback", c, "cutout_setback") : h("span"),
         cut ? [field("Width (0 = std)", c, "cutout_width"), field("Depth (0 = std)", c, "cutout_depth"),
           field("Corner radius", c, "cutout_radius")] : null),
@@ -570,7 +668,9 @@ function renderDial() {
     input.onchange = () => {
       const v = readDial(input, c[prop]);
       if (v == null) { input.value = fmtDial(c[prop]); return; }
-      c[prop] = prop === "elevation" ? Math.max(0, v) : prop === "rotation" ? ((v % 360) + 540) % 360 - 180 : v;
+      const next = { x: c.x, z: c.z, elevation: c.elevation, rotation: c.rotation };
+      next[prop] = prop === "elevation" ? Math.max(0, v) : prop === "rotation" ? ((v % 360) + 540) % 360 - 180 : v;
+      placeCabinet(c, next.x, next.z, next.elevation, next.rotation);
       recompute();
     };
   }
@@ -878,8 +978,7 @@ function setup3d() {
     const c = project.cabinets.find((c) => c.id === selected);
     if (!c) return;
     const [x, z] = originFromProxy(c);
-    c.x = Math.round(x * 10) / 10; c.z = Math.round(z * 10) / 10;
-    c.elevation = Math.max(0, Math.round(gizmoProxy.position.y * 10) / 10);
+    placeCabinet(c, Math.round(x * 10) / 10, Math.round(z * 10) / 10, Math.max(0, Math.round(gizmoProxy.position.y * 10) / 10));
     recompute();
   });
   gizmo.addEventListener("objectChange", () => {
@@ -887,7 +986,7 @@ function setup3d() {
     if (!g) return;
     if (gizmoProxy.position.y < 0) gizmoProxy.position.y = 0;
     const [x, z] = originFromProxy(c);
-    g.position.set(x, gizmoProxy.position.y, z);
+    previewGroup(c, x, z, gizmoProxy.position.y);
     showDial({ x, y: gizmoProxy.position.y, z });
   });
   new ResizeObserver(resize).observe(host);
@@ -941,11 +1040,12 @@ function setup3d() {
     if (!drag.moved) { drag.moved = true; controls.enabled = false; el.setPointerCapture(e.pointerId); }
     aim(e);
     const p = floorPoint(); if (!p) return;
-    let [x, z, rot] = snap(drag.c, p.x + drag.off[0], view === "front" ? drag.c.z : p.z + drag.off[1]);
+    let [x, z, rot] = drag.c.group
+      ? [Math.round((p.x + drag.off[0]) / 10) * 10, Math.round((p.z + drag.off[1]) / 10) * 10, drag.c.rotation]
+      : snap(drag.c, p.x + drag.off[0], view === "front" ? drag.c.z : p.z + drag.off[1]);
     if (view === "front") { z = drag.c.z; rot = drag.c.rotation; }
     drag.x = x; drag.z = z; drag.rot = rot;
-    const g = groups.get(drag.c.id);
-    if (g) { g.position.set(x, drag.c.elevation, z); g.rotation.y = THREE.MathUtils.degToRad(rot); }
+    previewGroup(drag.c, x, z, drag.c.elevation, rot);
     $("#coords").textContent = `${drag.c.id}  x ${x}  z ${z}`;
   });
   el.addEventListener("pointerup", (e) => {
@@ -963,7 +1063,7 @@ function setup3d() {
       return;
     }
     if (d.moved && d.x != null) {
-      d.c.x = d.x; d.c.z = d.z; d.c.rotation = d.rot ?? d.c.rotation; selected = d.c.id; selWall = null; recompute(); return;
+      placeCabinet(d.c, d.x, d.z, d.c.elevation, d.rot ?? d.c.rotation); selected = d.c.id; selWall = null; recompute(); return;
     }
     if (Math.hypot(e.clientX - d.sx, e.clientY - d.sy) > 4) return;
     if (!d.c && d.wall == null) closeSheetOnPhone();
@@ -1141,11 +1241,12 @@ function snap(c, x, z) {
 }
 // Rotate 90° clockwise (seen from above) about the footprint centre.
 function rotateCabinet(c) {
-  const f = footprint(c), cx = (f.x0 + f.x1) / 2, cz = (f.z0 + f.z1) / 2;
-  let rot = c.rotation - 90;
-  rot = ((rot + 180) % 360 + 360) % 360 - 180;
-  const [lx, lz] = toWorld(c, c.width / 2, c.depth / 2, 0, 0, rot);
-  c.rotation = rot; c.x = Math.round(cx - lx); c.z = Math.round(cz - lz);
+  const fs = groupOf(c).map((m) => footprint(m));
+  const cx = (Math.min(...fs.map((f) => f.x0)) + Math.max(...fs.map((f) => f.x1))) / 2;
+  const cz = (Math.min(...fs.map((f) => f.z0)) + Math.max(...fs.map((f) => f.z1))) / 2;
+  // turning by -90° about (cx, cz): world v -> (vx cos + vz sin, -vx sin + vz cos) with sin -1, cos 0
+  const vx = c.x - cx, vz = c.z - cz;
+  placeCabinet(c, Math.round(cx - vz), Math.round(cz + vx), c.elevation, c.rotation - 90);
   recompute();
 }
 function resize() {
@@ -1397,8 +1498,8 @@ async function main() {
         const step = e.shiftKey ? 100 : 10;
         // screen directions: in Plan, up is -z; in 3D and Front, up/down move the height
         const [dx, dy] = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, 1], ArrowDown: [0, -1] }[e.key];
-        c.x += dx * step;
-        if (view === "plan") c.z -= dy * step; else c.elevation = Math.max(0, c.elevation + dy * step);
+        if (view === "plan") placeCabinet(c, c.x + dx * step, c.z - dy * step);
+        else placeCabinet(c, c.x + dx * step, c.z, Math.max(0, c.elevation + dy * step));
         recompute();
         return;
       }

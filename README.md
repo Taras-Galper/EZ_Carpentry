@@ -28,6 +28,8 @@ Every push builds `casework` for Windows and Linux: Actions → latest run → A
 
 **Projects, presets, defaults.** Projects are kept in this browser (*Projects*: open, copy, delete); *Save* / *Open* move them as `project.json` files. ★ on a cabinet saves it as a preset under *My cabinets*. *Save as shop defaults* (Project panel) stores materials, prices, CNC tools and construction settings for every new project. Materials can be added, and deleted when no cabinet uses them.
 
+**Islands and peninsulas.** *Island* adds three base cabinets with finished backs, end panels and a 300 mm seating overhang, in the nearest free spot to the middle of the room. *Peninsula* adds the same run square to a wall, one end against it, clear of doors and windows. Their cabinets form a group: moving, nudging, typing coordinates or rotating any of them carries the whole group (*Ungroup* in the properties ends it). Two runs placed back to back share one worktop.
+
 **Checks.** Warnings (status bar, packet cover) for cabinets overlapping at the same height, cabinets through a wall, and doors hinged hard against a side wall (they need a filler). *Fill* leaves a 50 mm filler where a run meets a side wall for the same reason.
 
 **Moving.** Select a cabinet to get a move gizmo at its bottom-front centre; its arrows follow the cabinet's own width, depth and height, in 10 mm steps. The X / Y / Z / ↻ box under the 3D view takes exact values, or `+n` / `-n` to move by n (`=-n` for a negative coordinate). Arrow keys nudge 10 mm (Shift: 100 mm). Dragging a cabinet near any wall, angled or not, turns it to face the room and backs it onto the wall.
@@ -130,6 +132,7 @@ Frameless / System 32, full-overlay fronts. Parts are drawn inside face up (hing
 - Slides: longest of 250–550 mm that fits; drawer box = interior − 2 × slide clearance.
 - Shelf-pin rows at the system line from front and back, 32 mm pitch; shelves snap to the nearest row.
 - Worktop: one per straight run of touching base cabinets along their own axis (any rotation), deepest cabinet + overhang. At an L corner the later run is trimmed to butt against the first. Run ends cover end panels; free-standing ends (no wall or cabinet beside them) also get the end overhang. Set thickness 0 to turn off.
+- Islands: base runs back to back (facing opposite ways, backs on one line) share one worktop, banded front and back, with each run's cut-outs. *Seating overhang* (any base cabinet; largest in the run) extends the worktop behind the run and bands its back edge.
 - Worktop cut-outs: set Sink or Hob on a base cabinet; the cut-out is centred over it, set back from the worktop front. Sizes of 0 use 760 × 440 R10 (sink) and 560 × 490 R5 (hob). A warning appears when a cut-out comes within 50 mm of a worktop edge or is wider than the cabinet interior.
 - Dishwasher: integrated decor panel (slab or Shaker) and toe kick; the machine is shown in 3D but not cut. Joins worktop runs.
 - Appliance space (fridge, freestanding oven): holds the space, cuts nothing, not charged. Under-worktop height (< 1000 mm on the floor) joins worktop runs; taller ones end them.

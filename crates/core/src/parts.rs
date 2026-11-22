@@ -624,10 +624,16 @@ fn build_worktops(project: &Project, out: &mut Build) {
         first: &'a Cabinet,
         /// cabinets with their offset along the run from the first
         members: Vec<(&'a Cabinet, f64)>,
+        /// cabinets of a back-to-back run merged into this worktop, with
+        /// that run's front edge (in their own local z)
+        backs: Vec<(&'a Cabinet, f64)>,
         ids: String,
         start: f64,
         len: f64,
+        /// back edge (first cabinet's local z) and overall depth
+        z0: f64,
         depth: f64,
+        band_back: bool,
     }
     let mut tops: Vec<Top> = runs
         .iter()
@@ -637,13 +643,73 @@ fn build_worktops(project: &Project, out: &mut Build) {
             Top {
                 first,
                 members: r.iter().map(|(c, a)| (*c, a - a0)).collect(),
+                backs: vec![],
                 ids: r.iter().map(|(c, _)| c.id.trim_end_matches("~b")).collect::<Vec<_>>().join("+"),
                 start: 0.0,
                 len: a1 + last.width - a0,
+                z0: 0.0,
                 depth: r.iter().map(|(c, _)| c.depth).fold(0.0, f64::max) + s.worktop_overhang,
+                band_back: false,
             }
         })
         .collect();
+
+    // Islands: two runs back to back (opposite facing, backs on one line,
+    // overlapping along it) share one worktop.
+    let mut merged = vec![false; tops.len()];
+    for i in 0..tops.len() {
+        if merged[i] {
+            continue;
+        }
+        for j in 0..tops.len() {
+            if i == j || merged[j] || merged[i] {
+                continue;
+            }
+            let (fi, fj) = (tops[i].first, tops[j].first);
+            if ((fi.rotation - fj.rotation).rem_euclid(360.0) - 180.0).abs() > 0.5 || (fi.elevation - fj.elevation).abs() > 1.0 {
+                continue;
+            }
+            let mut xs = vec![];
+            let mut on_line = true;
+            for x in [tops[j].start, tops[j].start + tops[j].len] {
+                let (wx, wz) = to_world(fj.x, fj.z, fj.rotation, x, 0.0);
+                let (lx, lz) = to_local(fi.x, fi.z, fi.rotation, wx, wz);
+                on_line &= lz.abs() < 2.0;
+                xs.push(lx);
+            }
+            let (b0, b1) = (xs[0].min(xs[1]), xs[0].max(xs[1]));
+            let (a0, a1) = (tops[i].start, tops[i].start + tops[i].len);
+            if !on_line || b1.min(a1) - b0.max(a0) < 50.0 {
+                continue;
+            }
+            let dj = tops[j].depth;
+            let backs: Vec<(&Cabinet, f64)> = tops[j].members.iter().map(|(c, _)| (*c, dj)).collect();
+            let ids = tops[j].ids.clone();
+            let t = &mut tops[i];
+            t.start = a0.min(b0);
+            t.len = a1.max(b1) - t.start;
+            t.z0 = -dj;
+            t.depth += dj;
+            t.backs = backs;
+            t.ids = format!("{}+{}", t.ids, ids);
+            t.band_back = true;
+            merged[j] = true;
+        }
+    }
+    let mut k = 0;
+    tops.retain(|_| {
+        k += 1;
+        !merged[k - 1]
+    });
+    // Seating overhang at the back (peninsulas, single-row islands).
+    for t in tops.iter_mut().filter(|t| t.backs.is_empty()) {
+        let back = t.members.iter().map(|(c, _)| c.worktop_back).fold(0.0, f64::max);
+        if back > 0.0 {
+            t.z0 = -back;
+            t.depth += back;
+            t.band_back = true;
+        }
+    }
 
     // Run ends: cover end panels, and overhang ends that stand free
     // (no wall, no cabinet at worktop height right beside them).
@@ -693,12 +759,9 @@ fn build_worktops(project: &Project, out: &mut Build) {
                 continue; // parallel runs never butt
             }
             // i's footprint corners in j's local frame
-            let corners = [
-                (tops[i].start, 0.0),
-                (tops[i].start + tops[i].len, 0.0),
-                (tops[i].start, tops[i].depth),
-                (tops[i].start + tops[i].len, tops[i].depth),
-            ];
+            let (zi0, zi1) = (tops[i].z0, tops[i].z0 + tops[i].depth);
+            let corners =
+                [(tops[i].start, zi0), (tops[i].start + tops[i].len, zi0), (tops[i].start, zi1), (tops[i].start + tops[i].len, zi1)];
             let mut lx = (f64::MAX, f64::MIN);
             let mut lz = (f64::MAX, f64::MIN);
             for (x, z) in corners {
@@ -709,7 +772,7 @@ fn build_worktops(project: &Project, out: &mut Build) {
             }
             let t = &mut tops[j];
             let (a, b) = (t.start, t.start + t.len);
-            let z_overlap = lz.1.min(t.depth) - lz.0.max(0.0);
+            let z_overlap = lz.1.min(t.z0 + t.depth) - lz.0.max(t.z0);
             let x_overlap = lx.1.min(b) - lx.0.max(a);
             if z_overlap <= 0.5 || x_overlap <= 0.5 {
                 continue;
@@ -731,7 +794,10 @@ fn build_worktops(project: &Project, out: &mut Build) {
         // Cut-outs: drawing x along the worktop from its (trimmed) start,
         // y from the front edge.
         let mut cutouts = vec![];
-        for (c, off) in &t.members {
+        let front = t.z0 + t.depth; // front edge, first cabinet's local z
+        let f = t.first;
+        let all = t.members.iter().map(|&(c, _)| (c, front)).chain(t.backs.iter().copied());
+        for (c, zf) in all {
             if c.cutout == CutoutKind::None {
                 continue;
             }
@@ -739,8 +805,11 @@ fn build_worktops(project: &Project, out: &mut Build) {
             let cw = if c.cutout_width > 0.0 { c.cutout_width } else { dw };
             let cd = if c.cutout_depth > 0.0 { c.cutout_depth } else { dd };
             let cr = if c.cutout_radius > 0.0 { c.cutout_radius } else { dr };
-            let x = off + c.width / 2.0 - cw / 2.0 - t.start;
-            let y = c.cutout_setback;
+            // centre in the cabinet's own frame (zf: its run's front edge), then in the first's
+            let (wx, wz) = to_world(c.x, c.z, c.rotation, c.width / 2.0, zf - c.cutout_setback - cd / 2.0);
+            let (lx, lz) = to_local(f.x, f.z, f.rotation, wx, wz);
+            let x = lx - cw / 2.0 - t.start;
+            let y = front - lz - cd / 2.0;
             let label = format!("{} ({}) {:?} cut-out", c.name, c.id, c.cutout).to_lowercase();
             if x < 50.0 || x + cw > t.len - 50.0 || y < 30.0 || y + cd > t.depth - 30.0 {
                 out.warnings.push(format!("{label} {cw:.0}×{cd:.0} leaves less than 50 mm to the worktop edge"));
@@ -752,11 +821,11 @@ fn build_worktops(project: &Project, out: &mut Build) {
         // Placed in the frame of the first real cabinet of the run; a run
         // that is only an L's return arm goes in that L's own frame.
         let (anchor, box3d, suffix) = match t.members.iter().find(|(c, _)| !c.id.ends_with("~b")) {
-            Some((c, off)) => (c.id.clone(), Box3 { pos: [t.start - off, c.height, 0.0], size: [t.len, th, t.depth] }, ""),
+            Some((c, off)) => (c.id.clone(), Box3 { pos: [t.start - off, c.height, t.z0], size: [t.len, th, t.depth] }, ""),
             None => {
                 let id = t.first.id.trim_end_matches("~b").to_string();
                 let real = project.cabinets.iter().find(|c| c.id == id).unwrap_or(t.first);
-                let b = Box3 { pos: [real.width - t.depth, real.height, real.depth + t.start], size: [t.depth, th, t.len] };
+                let b = Box3 { pos: [real.width - t.z0 - t.depth, real.height, real.depth + t.start], size: [t.depth, th, t.len] };
                 (id, b, "2")
             }
         };
@@ -770,7 +839,7 @@ fn build_worktops(project: &Project, out: &mut Build) {
             w: r1(t.len),
             h: r1(t.depth),
             grain_y: false,
-            edges: [true, false, false, false],
+            edges: [true, false, t.band_back, false],
             outline: rect(r1(t.len), r1(t.depth)),
             holes: vec![],
             cutouts,

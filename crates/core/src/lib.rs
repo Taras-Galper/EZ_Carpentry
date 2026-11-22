@@ -870,4 +870,92 @@ mod tests {
         assert!(p.cabinets.iter().all(|c| plan.contains(&format!(">{}</text>", c.id))));
         assert!(plan.contains(">3200</text>") && plan.contains(">2600</text>"));
     }
+
+    /// Free-standing island in the sample room: row A faces +z, row B is
+    /// back to back with it (rotation 180), B has the sink.
+    fn island(back_row: bool) -> Project {
+        let mut p = sample_kitchen();
+        let base = Cabinet { group: "island".into(), ..Cabinet::default() };
+        let mut cabs = vec![
+            Cabinet { id: "i1".into(), x: 900.0, z: 1300.0, ..base.clone() },
+            Cabinet { id: "i2".into(), x: 1500.0, z: 1300.0, ..base.clone() },
+        ];
+        if back_row {
+            // rotation 180: origin at the back-left seen from its own front = world right end
+            cabs.push(Cabinet {
+                id: "j1".into(),
+                x: 2100.0,
+                z: 1300.0,
+                rotation: 180.0,
+                cutout: CutoutKind::Sink,
+                width: 1200.0,
+                ..base.clone()
+            });
+        } else {
+            for c in cabs.iter_mut() {
+                c.worktop_back = 300.0;
+            }
+        }
+        p.cabinets.retain(|c| c.elevation == 0.0 && c.z < 100.0 && c.rotation == 0.0);
+        p.cabinets.extend(cabs);
+        p
+    }
+
+    #[test]
+    fn back_to_back_island_shares_one_worktop() {
+        let p = island(true);
+        let r = compute(&p);
+        assert!(r.build.warnings.is_empty(), "{:?}", r.build.warnings);
+        let tops: Vec<_> =
+            r.build.parts.iter().filter(|q| q.role == parts::Role::Worktop && (q.cabinet == "i1" || q.cabinet == "j1")).collect();
+        assert_eq!(tops.len(), 1);
+        let t = tops[0];
+        let ov = p.settings.worktop_overhang;
+        assert_eq!(t.h, 2.0 * (560.0 + ov));
+        assert_eq!(t.w, 1200.0);
+        assert_eq!(t.edges, [true, false, true, false]);
+        // the sink sits over j1, set back from j1's front (the worktop's back edge)
+        let c = &t.cutouts[0];
+        assert_eq!(c.x + c.w / 2.0, 600.0);
+        assert_eq!(t.h - (c.y + c.h), 60.0);
+        assert_eq!(t.box3d.pos[2], -(560.0 + ov));
+    }
+
+    #[test]
+    fn island_seating_overhang() {
+        let mut p = island(false);
+        p.settings.worktop_end_overhang = 20.0;
+        let r = compute(&p);
+        let t = r.build.parts.iter().find(|q| q.id == "i1-worktop").unwrap();
+        assert_eq!(t.h, 560.0 + p.settings.worktop_overhang + 300.0);
+        assert_eq!(t.box3d.pos[2], -300.0);
+        // both ends free: end overhang on each
+        assert_eq!(t.w, 1200.0 + 40.0);
+    }
+
+    #[test]
+    fn peninsula_end_at_wall_gets_no_end_overhang() {
+        let mut p = sample_kitchen();
+        p.settings.worktop_end_overhang = 20.0;
+        p.cabinets.retain(|c| c.elevation == 0.0 && c.z < 100.0 && c.rotation == 0.0 && c.x < 600.0);
+        // rotation -90: local x runs +z, fronts face -x; backs on x = 1700, ending at the front wall
+        for (k, z) in [(1, 1000.0), (2, 1600.0)] {
+            p.cabinets.push(Cabinet { id: format!("p{k}"), x: 1700.0, z, rotation: -90.0, worktop_back: 300.0, ..Cabinet::default() });
+        }
+        p.cabinets.push(Cabinet {
+            id: "p3".into(),
+            x: 1700.0,
+            z: 2200.0,
+            rotation: -90.0,
+            width: 400.0,
+            worktop_back: 300.0,
+            ..Cabinet::default()
+        });
+        let r = compute(&p);
+        assert!(r.build.warnings.is_empty(), "{:?}", r.build.warnings);
+        let t = r.build.parts.iter().find(|q| q.id == "p1-worktop").unwrap();
+        // run ends at the front wall (z = 2600): overhang only at the free end near z = 1000
+        assert_eq!(t.w, 1600.0 + 20.0);
+        assert_eq!(t.box3d.pos[0], -20.0);
+    }
 }
