@@ -56,3 +56,40 @@ export function snapCorner(prev, x, z) {
   }
   return [x, z];
 }
+
+// Set wall i to length L, keeping `anchor` ("start" | "end" | "centre") in
+// place. The neighbouring walls keep their directions: the moved corner
+// slides its neighbour wall along, and the corner after that is found where
+// that wall meets the next one, so a rectangle stays a rectangle.
+// Returns new corners (rounded to 0.1 mm); openings on wall i keep their
+// distance from the fixed point.
+export function resizeWall(room, i, L, anchor = "start") {
+  const n = room.walls.length;
+  const P = room.walls.map((p) => [...p]);
+  const w = wallOf(room, i);
+  if (!w || !(L > 0)) return { walls: P, openings: room.openings };
+  const at = (k) => ((k % n) + n) % n;
+  const dirOf = (a, b) => { const dx = b[0] - a[0], dz = b[1] - a[1], l = Math.hypot(dx, dz) || 1; return [dx / l, dz / l]; };
+  const cross = (a, b) => a[0] * b[1] - a[1] * b[0];
+  // Line p + s d meets line q + t e.
+  const meet = (p, d, q, e) => {
+    const c = cross(d, e);
+    if (Math.abs(c) < 1e-9) return null;
+    const s = cross([q[0] - p[0], q[1] - p[1]], e) / c;
+    return [p[0] + d[0] * s, p[1] + d[1] * s];
+  };
+  // Move corner k by v; its other wall (towards `side`) keeps its direction.
+  const slide = (k, v, side) => {
+    const far = at(k + side), beyond = at(k + 2 * side);
+    const along = dirOf(P[k], P[far]), next = dirOf(P[far], P[beyond]);
+    P[k] = [P[k][0] + v[0], P[k][1] + v[1]];
+    if (n === 3 || far === i || far === at(i + 1)) return; // triangle: the far corner is fixed
+    P[far] = meet(P[k], along, P[far], next) || [P[far][0] + v[0], P[far][1] + v[1]];
+  };
+  const d = L - w.len;
+  const [ds, de] = anchor === "end" ? [d, 0] : anchor === "centre" ? [d / 2, d / 2] : [0, d];
+  if (de) slide(at(i + 1), [w.dir[0] * de, w.dir[1] * de], +1);
+  if (ds) slide(i, [-w.dir[0] * ds, -w.dir[1] * ds], -1);
+  const openings = (room.openings || []).map((o) => (o.wall === i && ds ? { ...o, offset: Math.round((o.offset + ds) * 10) / 10 } : o));
+  return { walls: P.map((p) => [Math.round(p[0] * 10) / 10, Math.round(p[1] * 10) / 10]), openings };
+}

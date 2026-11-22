@@ -67,6 +67,8 @@ figcaption{display:flex;gap:6px;align-items:center;padding:6px 8px;border-top:1p
 .wlabel{position:absolute;left:0;top:0;pointer-events:auto;cursor:pointer;background:#fff;border:1px solid var(--line);border-radius:4px;padding:1px 6px;font-size:12px;font-variant-numeric:tabular-nums}
 .wlabel.on{background:var(--acc);border-color:var(--acc);color:#fff}
 .vhandle{position:absolute;left:0;top:0;width:12px;height:12px;background:#fff;border:2px solid var(--acc);border-radius:2px;pointer-events:auto;cursor:move}
+.vhandle.fixed{background:var(--acc)}
+.seg{display:flex;border:1px solid var(--line);border-radius:6px;overflow:hidden}.seg button{flex:1;border:none;border-radius:0;padding:6px 4px;color:var(--mute);background:#fff}.seg button.on{background:var(--ink);color:#fff}.vhandle.mid{border-radius:50%;pointer-events:none}
 #dial{position:absolute;left:10px;bottom:10px;z-index:2;display:flex;gap:4px;background:#fff;border:1px solid var(--line);border-radius:8px;padding:5px 6px;box-shadow:0 1px 4px rgba(0,0,0,.08)}
 #dial label{display:flex;align-items:center;gap:4px;margin:0;color:var(--mute);font-size:12px;font-weight:600}
 #dial input{width:64px;border:1px solid var(--line);border-radius:5px;padding:4px 6px;font-variant-numeric:tabular-nums;text-align:right}

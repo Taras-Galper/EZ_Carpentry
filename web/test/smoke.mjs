@@ -13,6 +13,21 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const url = "file://" + path.resolve(here, "../dist/index.html");
 const out = process.argv[2] || "/tmp/ezc-smoke";
 fs.mkdirSync(out, { recursive: true });
+// Room geometry (pure JS).
+const { resizeWall } = await import("../src/room.js");
+{
+  const room = { walls: [[0, 0], [3200, 0], [3200, 2600], [0, 2600]], openings: [{ wall: 0, offset: 1300, width: 700 }] };
+  const ok = (a, L, walls, off) => {
+    const r = resizeWall(room, 0, L, a);
+    const good = JSON.stringify(r.walls) === JSON.stringify(walls) && r.openings[0].offset === off;
+    console.log((good ? "ok   " : "FAIL ") + `resize wall, ${a} fixed`);
+    if (!good) process.exitCode = 1;
+  };
+  ok("start", 4000, [[0, 0], [4000, 0], [4000, 2600], [0, 2600]], 1300);
+  ok("end", 4000, [[-800, 0], [3200, 0], [3200, 2600], [-800, 2600]], 2100);
+  ok("centre", 4000, [[-400, 0], [3600, 0], [3600, 2600], [-400, 2600]], 1700);
+}
+
 const exe = ["/usr/bin/google-chrome", "/usr/bin/chromium"].find((p) => fs.existsSync(p));
 const browser = await pw.chromium.launch({ executablePath: exe, args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
 let failed = 0;
@@ -52,4 +67,4 @@ await pp.screenshot({ path: `${out}/phone.png` });
 check(true, "phone loads");
 await browser.close();
 console.log(failed ? `${failed} failed` : "all passed");
-process.exit(failed ? 1 : 0);
+process.exit(failed || process.exitCode ? 1 : 0);

@@ -3,7 +3,7 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { TransformControls } from "three/examples/jsm/controls/TransformControls.js";
 import init, * as cwWasm from "../pkg/casework_wasm.js";
 import wasmBytes from "../pkg/casework_wasm_bg.wasm";
-import { wallOf, walls as roomWalls, local as wallLocal, point as wallPoint, wallPieces, snapCorner } from "./room.js";
+import { wallOf, walls as roomWalls, local as wallLocal, point as wallPoint, wallPieces, snapCorner, resizeWall } from "./room.js";
 
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -25,6 +25,7 @@ const DEFAULTS = "ezc.defaults", PRESETS = "ezc.presets";
 let projectId = null;
 let project, report, selected = null, tab = "3d", showFronts = true;
 let selWall = null;   // index of the selected wall, or null
+let lenAnchor = "start"; // which point of a wall stays put when its length is typed: start | centre | end
 let drawing = null;   // { pts: [[x, z]...], cursor: [x, z] } while drawing a room
 let downloads = null;
 let cw = cwWasm, engine = "wasm";
@@ -581,8 +582,8 @@ function renderWallPanel(put) {
   };
   const lenInput = h("input", { type: "number", step: "any", value: Math.round(w.len), onchange: () => {
     const L = parseFloat(lenInput.value); if (!(L > 50)) return;
-    const n = project.room.walls.length;
-    project.room.walls[(i + 1) % n] = [Math.round(w.start[0] + w.dir[0] * L), Math.round(w.start[1] + w.dir[1] * L)];
+    const r = resizeWall(project.room, i, L, lenAnchor);
+    project.room.walls = r.walls; project.room.openings = r.openings;
     commitRoom();
   } });
   const ops = project.room.openings.map((o, k) => [o, k]).filter(([o]) => o.wall === i);
@@ -597,6 +598,9 @@ function renderWallPanel(put) {
     h("div", { class: "row" }, h("h3", {}, `Wall ${i + 1}`),
       h("button", { onclick: () => { selWall = null; recompute(); } }, "Done")),
     h("label", {}, h("span", {}, "Length"), lenInput),
+    h("label", {}, h("span", {}, "Fixed"),
+      h("div", { class: "seg", id: "anchor" }, ...[["start", "Start"], ["centre", "Centre"], ["end", "End"]].map(([k, t]) =>
+        h("button", { class: lenAnchor === k ? "on" : "", "data-anchor": k, onclick: () => { lenAnchor = k; recompute(); } }, t)))),
     h("h3", {}, "Fill with cabinets"),
     h("div", { class: "fill" },
       h("button", { class: "pri", onclick: () => fill("both") }, "Base + wall"),
@@ -1173,9 +1177,17 @@ function buildRoom() {
       if (phone.matches && !document.body.classList.contains("sheet-right")) openSheet("right");
     } }, String(Math.round(w.len)));
     ov.append(lab); overlayItems.push({ el: lab, pos: new THREE.Vector3(lx, 0, lz) });
+    if (w.i === selWall && lenAnchor === "centre") {
+      const [mx, mz] = wallPoint(w, w.len / 2, 0);
+      const dot = h("span", { class: "vhandle fixed mid" });
+      ov.append(dot); overlayItems.push({ el: dot, pos: new THREE.Vector3(mx, 0, mz) });
+    }
   }
   room.walls.forEach(([x, z], i) => {
-    const hd = h("span", { class: "vhandle", title: "Drag corner" });
+    // the selected wall's fixed corner(s) for a typed length are filled
+    const n = room.walls.length;
+    const fixed = selWall != null && ((lenAnchor === "start" && i === selWall) || (lenAnchor === "end" && i === (selWall + 1) % n));
+    const hd = h("span", { class: "vhandle" + (fixed ? " fixed" : ""), title: "Drag corner" });
     hd.addEventListener("pointerdown", (e) => { e.stopPropagation(); e.preventDefault(); vdrag = { i }; controls.enabled = false; });
     ov.append(hd); overlayItems.push({ el: hd, pos: new THREE.Vector3(x, 0, z) });
   });
