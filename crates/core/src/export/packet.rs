@@ -199,6 +199,34 @@ pub fn packet_html(project: &Project, report: &Report, date: Option<&str>) -> St
     }
     let _ = write!(o, "</table></section>");
 
+    // ---------- lighting ----------
+    if !b.circuits.is_empty() {
+        let led = &project.settings.led;
+        let _ = write!(
+            o,
+            "<section><h2>Lighting</h2><p>{:.0} V strip, {:.1} W/m, in {:.0} mm profiles routed {:.0} mm from the front; drivers sized with {:.0}% headroom; cable holes Ø{:.0} near the back.</p><table><tr><th>Circuit</th><th>Strips</th><th class=n>Length</th><th class=n>Power</th><th class=n>Driver</th></tr>",
+            led.voltage, led.watts_per_m, led.profile_width, led.setback, led.headroom_pct, led.cable_hole
+        );
+        for c in &b.circuits {
+            let strips: Vec<String> = b
+                .lights
+                .iter()
+                .filter(|l| l.circuit == c.id)
+                .map(|l| format!("{} {} {:.0}", esc(&l.cabinet), esc(&l.place).to_lowercase(), l.length))
+                .collect();
+            let _ = write!(
+                o,
+                "<tr><td>{}</td><td>{}</td><td class=n>{:.2} m</td><td class=n>{:.1} W</td><td class=n>{:.0} W</td></tr>",
+                esc(&c.id),
+                strips.join("<br>"),
+                c.length / 1000.0,
+                c.watts,
+                c.driver
+            );
+        }
+        let _ = write!(o, "</table></section>");
+    }
+
     // ---------- cabinets ----------
     let _ = write!(o, "<section><h2>Cabinets</h2><table><tr><th>Cabinet</th><th>Name</th><th>Description</th><th class=n>Parts</th></tr>");
     for c in &project.cabinets {

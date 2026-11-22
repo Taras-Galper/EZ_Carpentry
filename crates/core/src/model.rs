@@ -114,6 +114,16 @@ impl Pricing {
             90.0
         } else if n.contains("shelf pin") {
             0.5
+        } else if n.starts_with("led strip") {
+            30.0
+        } else if n.starts_with("led driver") {
+            120.0
+        } else if n.starts_with("led profile") {
+            40.0
+        } else if n.starts_with("led switch") {
+            60.0
+        } else if n.starts_with("led connection") {
+            8.0
         } else {
             0.0
         }
@@ -163,6 +173,7 @@ pub struct Settings {
     pub cornice: f64,
     /// Light rail height under wall-cabinet runs (0 = none).
     pub light_rail: f64,
+    pub led: crate::lighting::Led,
     /// Grooved back: distance from the carcass back edge to the groove.
     pub back_inset: f64,
     /// Depth of back-panel and drawer-bottom grooves.
@@ -192,6 +203,7 @@ impl Default for Settings {
             plinth_runs: true,
             cornice: 0.0,
             light_rail: 0.0,
+            led: Default::default(),
             shaker_frame: 60.0,
             shaker_groove: 8.0,
             routed_depth: 6.0,
@@ -420,6 +432,12 @@ pub struct Cabinet {
     pub glass: bool,
     /// Wall cabinet: one full-width front on a lift-up stay fitting.
     pub lift_up: bool,
+    /// LED strip in a routed profile under the bottom (wall cabinets).
+    pub led_under: bool,
+    /// LED strip in a routed profile under each shelf.
+    pub led_shelves: bool,
+    /// LED strip along the plinth under this cabinet's run.
+    pub led_plinth: bool,
     /// Blind corner: this side of the front is a fixed panel that the
     /// perpendicular run covers; the door fills the rest.
     pub blind_side: BlindSide,
@@ -484,6 +502,9 @@ impl Default for Cabinet {
             door_style: DoorStyle::Slab,
             glass: false,
             lift_up: false,
+            led_under: false,
+            led_shelves: false,
+            led_plinth: false,
             blind_side: BlindSide::None,
             blind_width: 600.0,
             corner: Corner::None,

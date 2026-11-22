@@ -245,6 +245,9 @@ pub struct Build {
     pub hardware: Vec<Hardware>,
     pub placeholders: Vec<Placeholder>,
     pub warnings: Vec<String>,
+    /// LED strips and the circuits that feed them.
+    pub lights: Vec<crate::lighting::Light>,
+    pub circuits: Vec<crate::lighting::Circuit>,
 }
 
 fn rect(w: f64, h: f64) -> Vec<[f64; 2]> {
@@ -352,6 +355,7 @@ pub fn build(project: &Project) -> Build {
     if project.settings.light_rail > 0.0 {
         build_trim(project, &mut out, Trim::LightRail);
     }
+    crate::lighting::plan(project, &mut out);
     out
 }
 
@@ -599,6 +603,9 @@ fn build_plinths(project: &Project, out: &mut Build) {
                     Box3 { pos: [len - t, 0.0, 20.0], size: [t, toe, rl] },
                 );
             }
+        }
+        if r.iter().any(|(c, _)| c.led_plinth) {
+            crate::lighting::plinth(first, len, zf, out);
         }
         let shares: Vec<(String, f64)> = r.iter().map(|(c, _)| (c.id.clone(), c.width / len)).collect();
         for p in &mut out.parts[start..] {
@@ -1201,6 +1208,7 @@ fn build_cabinet(project: &Project, cab: &Cabinet, out: &mut Build) {
         build_carcass(project, cab, out);
     }
     end_panels(project, cab, out);
+    crate::lighting::cabinet(project, cab, out);
 }
 
 /// Map local (x, z) points to an L panel's drawing frame (seen from

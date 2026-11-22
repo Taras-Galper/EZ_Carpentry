@@ -5,6 +5,7 @@
 pub mod checks;
 pub mod export;
 pub mod import_dxf;
+pub mod lighting;
 pub mod model;
 pub mod nest;
 pub mod parts;
@@ -1216,5 +1217,47 @@ mod tests {
         // off by default
         let r0 = compute(&sample_kitchen());
         assert!(!r0.build.parts.iter().any(|q| q.id.contains("cornice") || q.id.contains("lightrail")));
+    }
+
+    #[test]
+    fn led_lighting() {
+        let mut p = sample_kitchen();
+        for c in p.cabinets.iter_mut() {
+            match c.id.as_str() {
+                "w1" => {
+                    c.led_under = true;
+                    c.led_shelves = true;
+                }
+                "w3" => c.led_under = true,
+                "b4" | "b5" | "b6" => c.led_plinth = true,
+                _ => {}
+            }
+        }
+        let r = compute(&p);
+        assert!(r.build.warnings.is_empty(), "{:?}", r.build.warnings);
+        let get = |id: &str| r.build.parts.iter().find(|q| q.id == id).unwrap();
+        // the wall cabinet's bottom: groove on the underside near the front, cable hole near the back
+        let bot = get("w1-bottom");
+        let g = bot.pockets.iter().find(|k| k.face == 2).unwrap();
+        assert_eq!((g.y, g.h), (30.0, 17.0));
+        assert_eq!(g.w, bot.w - 40.0);
+        assert!(g.depth <= bot.thickness - 6.0);
+        assert!(bot.holes.iter().any(|h| h.dia == 10.0 && h.depth == 0.0 && h.y > bot.h - 50.0));
+        assert!(get("w1-shelf1").pockets.iter().any(|k| k.face == 2));
+        // strips: w1 bottom + 2 shelves, w3 bottom, one plinth run
+        assert_eq!(r.build.lights.len(), 5);
+        // circuits: w1 and w3 are apart on the wall, the plinth has its own
+        assert_eq!(r.build.circuits.len(), 3);
+        for c in &r.build.circuits {
+            assert!(c.driver >= c.watts * 1.2, "{c:?}");
+        }
+        let plinth = r.build.lights.iter().find(|l| l.place == "Plinth").unwrap();
+        assert_eq!(plinth.length, 1500.0 - 40.0);
+        let hw = |name: &str| r.build.hardware.iter().filter(|h| h.name.starts_with(name)).map(|h| h.qty).sum::<u32>();
+        assert_eq!(hw("LED driver"), 3);
+        assert_eq!(hw("LED profile"), 4);
+        // the groove reaches the second-face program
+        let files = export::files(&p, &r);
+        assert!(files.iter().any(|(n, _)| n.starts_with("nc/face2/") && n.contains("w1-bottom")));
     }
 }

@@ -495,6 +495,12 @@ function renderProps() {
         field("Cornice", s, "cornice"), field("Light rail", s, "light_rail"),
         s.back_mode === "grooved" ? field("Back inset", s, "back_inset") : null,
         field("Groove depth", s, "groove_depth")),
+      h("h3", {}, "LED"),
+      h("div", { class: "grid2" },
+        field("Volts", s.led, "voltage"), field("W / m", s.led, "watts_per_m"),
+        field("Profile width", s.led, "profile_width"), field("Groove depth", s.led, "groove_depth"),
+        field("From front", s.led, "setback"), field("Cable hole Ø", s.led, "cable_hole"),
+        field("Driver headroom %", s.led, "headroom_pct")),
       h("h3", {}, "Room"),
       h("div", { class: "grid2" }, field("Wall thickness", project.room, "thickness"), field("Height", project.room, "height")),
       h("div", { class: "row" },
@@ -545,7 +551,7 @@ function renderProps() {
       } }, "Duplicate"),
       h("button", { title: "Rotate 90° (R)", onclick: () => rotateCabinet(c) }, "⟳"),
       h("button", { title: "Save as preset", onclick: () => savePreset(c) }, "★"),
-      h("button", { class: multiMode ? "on" : "", title: "Tap more cabinets to add them (or Shift-click)", onclick: () => { multiMode = !multiMode; recompute(); } }, "+ Select"),
+      h("button", { class: multiMode ? "on" : "", title: "Add cabinets to the selection (or Shift-click)", "aria-label": "Select more", onclick: () => { multiMode = !multiMode; recompute(); } }, "+"),
       h("button", { class: "danger", onclick: () => {
         project.cabinets = project.cabinets.filter((x) => x !== c); selected = null; recompute();
       } }, "Delete")),
@@ -568,6 +574,9 @@ function renderProps() {
         lc || c.lift_up ? null : field("Hinge", c, "hinge_side", "select", [["left", "Left"], ["right", "Right"]]),
         c.kind === "wall" && !lc ? field("Lift-up", c, "lift_up", "check") : null,
         field("Glass", c, "glass", "check"),
+        c.kind === "wall" && !lc ? field("LED under", c, "led_under", "check") : null,
+        !lc && c.shelves > 0 ? field("LED shelves", c, "led_shelves", "check") : null,
+        c.kind !== "wall" && !lc ? field("LED plinth", c, "led_plinth", "check") : null,
         field("Front style", c, "door_style", "select", [["slab", "Slab"], ["shaker", "Shaker"], ["shaker_routed", "Shaker routed"]]),
         field("Shelves", c, "shelves", "int"),
         field("Handles", c, "handles", "check"),
@@ -625,7 +634,7 @@ function renderMultiPanel(put) {
   const grouped = cs.some((c) => c.group);
   put(
     h("div", { class: "row" }, h("h3", {}, `${cs.length} cabinets`),
-      h("button", { class: multiMode ? "on" : "", onclick: () => { multiMode = !multiMode; recompute(); } }, "+ Select"),
+      h("button", { class: multiMode ? "on" : "", title: "Add cabinets to the selection", "aria-label": "Select more", onclick: () => { multiMode = !multiMode; recompute(); } }, "+"),
       h("button", { title: "Rotate 90° (R)", onclick: () => rotateCabinet(cs.find((c) => c.id === selected)) }, "⟳"),
       h("button", { class: "danger", onclick: () => { project.cabinets = project.cabinets.filter((x) => !isSel(x.id)); selected = null; recompute(); } }, "Delete")),
     h("div", { class: "mute" }, cs.map((c) => c.id).join(" · ")),
@@ -1066,6 +1075,14 @@ function renderHardware() {
       h("thead", {}, h("tr", {}, h("th", {}, "Cab"), h("th", {}, "Item"), h("th", {}, "Qty"))),
       h("tbody", {}, report.build.hardware.map((x) =>
         h("tr", {}, h("td", {}, x.cabinet), h("td", {}, x.name), h("td", { class: "n" }, x.qty))))));
+  // Lighting plan: one driver and switch per circuit
+  const cs = report.build.circuits || [];
+  if (cs.length) v.prepend(h("table", { class: "hw led" },
+    h("thead", {}, h("tr", {}, ["Circuit", "Strips", "Length", "Power", "Driver"].map((t, i) => h("th", { class: i > 1 ? "n" : "" }, t)))),
+    h("tbody", {}, cs.map((c) => h("tr", {},
+      h("td", {}, c.id),
+      h("td", {}, report.build.lights.filter((l) => l.circuit === c.id).map((l) => h("div", {}, `${l.cabinet} · ${l.place.toLowerCase()} · ${Math.round(l.length)}`))),
+      h("td", { class: "n" }, (c.length / 1000).toFixed(2) + " m"), h("td", { class: "n" }, c.watts.toFixed(1) + " W"), h("td", { class: "n" }, c.driver + " W"))))));
 }
 
 // ---------- 3D ----------
@@ -1524,6 +1541,15 @@ function partMat(p, size, sel) {
   }
   return matCache.get(key);
 }
+const ledMat = new THREE.MeshBasicMaterial({ color: 0xfff1c2 });
+// warm glow that fades away from the strip (alpha by v: bright at the top)
+const beamMat = (() => {
+  const cv = document.createElement("canvas"); cv.width = 4; cv.height = 64;
+  const g = cv.getContext("2d"), grd = g.createLinearGradient(0, 0, 0, 64);
+  grd.addColorStop(0, "#000"); grd.addColorStop(1, "#fff");
+  g.fillStyle = grd; g.fillRect(0, 0, 4, 64);
+  return new THREE.MeshBasicMaterial({ color: 0xffd98a, transparent: true, opacity: 0.45, alphaMap: new THREE.CanvasTexture(cv), depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
+})();
 const applianceMat = new THREE.MeshStandardMaterial({ color: 0xb9bcc0, roughness: 0.6, metalness: 0.3, transparent: true, opacity: 0.55 });
 const applianceSel = new THREE.MeshStandardMaterial({ color: 0x8fa8d8, roughness: 0.6, transparent: true, opacity: 0.6 });
 const wallSelMat = new THREE.MeshStandardMaterial({ color: 0x8fb0ea, roughness: 1, transparent: true, opacity: 0.6, depthWrite: false });
@@ -1554,6 +1580,24 @@ function updateScene() {
     m.userData.cab = ph.cabinet;
     const l = new THREE.LineSegments(edges, edgeMat); l.scale.copy(m.scale); l.position.copy(m.position);
     g.add(m, l);
+  }
+  // LED strips: glowing bars (cabinet-local)
+  for (const l of report.build.lights || []) {
+    const g = groups.get(l.cabinet); if (!g) continue;
+    const [x, y, z] = l.box3d.pos, [sx, sy, sz] = l.box3d.size;
+    const m = new THREE.Mesh(box, ledMat);
+    m.scale.set(sx, sy, sz); m.position.set(x + sx / 2, y + sy / 2, z + sz / 2);
+    g.add(m);
+    // soft light falling from the strip (or spreading on the floor from a plinth)
+    const c = project.cabinets.find((q) => q.id === l.cabinet);
+    const beam = new THREE.Mesh(box, beamMat);
+    if (l.place === "Plinth") {
+      beam.scale.set(sx, 2, 160); beam.position.set(x + sx / 2, 1 - (c?.elevation || 0), z + sz + 80);
+    } else {
+      const down = l.place === "Under cabinet" ? Math.min(450, Math.max(150, (c?.elevation || 0) - 920)) : 220;
+      beam.scale.set(sx, down, 220); beam.position.set(x + sx / 2, y - down / 2, z + sz / 2 + 60);
+    }
+    g.add(beam);
   }
   for (const p of report.build.parts) {
     if (!showFronts && p.role === "front") continue;
