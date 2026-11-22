@@ -556,6 +556,21 @@ mod tests {
     }
 
     #[test]
+    fn packet_and_labels_cover_every_part() {
+        let p = sample_kitchen();
+        let r = compute(&p);
+        let packet = export::packet::packet_html(&p, &r, Some("2026-11-22"));
+        let labels = export::packet::labels_html(&p, &r);
+        for q in &r.build.parts {
+            assert!(packet.contains(&format!("<b>{}</b>", q.id)), "{} missing from cut list", q.id);
+        }
+        assert_eq!(labels.matches("<div class=label>").count(), r.build.parts.len());
+        assert_eq!(labels.matches("<div class=page>").count(), r.build.parts.len().div_ceil(24));
+        assert_eq!(packet.matches("<section class=land>").count(), r.nesting.sheets.len());
+        assert!(packet.contains("2026-11-22"));
+    }
+
+    #[test]
     fn blind_corner_front() {
         let r = compute(&sample_kitchen());
         let b3: Vec<_> = r.build.parts.iter().filter(|q| q.cabinet == "b3" && q.role == parts::Role::Front).collect();

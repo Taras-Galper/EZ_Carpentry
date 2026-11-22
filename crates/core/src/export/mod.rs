@@ -1,6 +1,8 @@
 pub mod drawing;
+pub mod code128;
 pub mod dxf;
 pub mod gcode;
+pub mod packet;
 pub mod quote;
 pub mod zip;
 
@@ -267,14 +269,25 @@ pub fn bundle(project: &Project, report: &Report) -> Vec<u8> {
     zip::store(&files(project, report))
 }
 
+pub fn bundle_dated(project: &Project, report: &Report, date: Option<&str>) -> Vec<u8> {
+    zip::store(&files_dated(project, report, date))
+}
+
 /// All export files as (path, bytes).
 pub fn files(project: &Project, report: &Report) -> Vec<(String, Vec<u8>)> {
+    files_dated(project, report, None)
+}
+
+/// As `files`, with a date printed on the shop packet.
+pub fn files_dated(project: &Project, report: &Report, date: Option<&str>) -> Vec<(String, Vec<u8>)> {
     let b = &report.build;
     let mut files: Vec<(String, Vec<u8>)> = vec![
         ("project.json".into(), serde_json::to_vec_pretty(project).unwrap_or_default()),
         ("cutlist.csv".into(), cutlist_csv(project, b).into_bytes()),
         ("hardware.csv".into(), hardware_csv(project, b).into_bytes()),
         ("labels.csv".into(), labels_csv(project, report).into_bytes()),
+        ("shop_packet.html".into(), packet::packet_html(project, report, date).into_bytes()),
+        ("labels.html".into(), packet::labels_html(project, report).into_bytes()),
         ("quote.csv".into(), quote::quote_csv(&quote::quote(project, report)).into_bytes()),
         (
             "quote.html".into(),

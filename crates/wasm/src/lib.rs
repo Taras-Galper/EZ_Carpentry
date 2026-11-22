@@ -19,11 +19,19 @@ pub fn compute(json: &str) -> Result<String, JsError> {
     serde_json::to_string(&cw::compute(&p)).map_err(|e| JsError::new(&e.to_string()))
 }
 
+/// `date` (any text, e.g. "2026-11-22") is printed on the shop packet.
 #[wasm_bindgen]
-pub fn export_zip(json: &str) -> Result<Vec<u8>, JsError> {
+pub fn export_zip(json: &str, date: Option<String>) -> Result<Vec<u8>, JsError> {
     let p = project(json)?;
     let r = cw::compute(&p);
-    Ok(cw::export::bundle(&p, &r))
+    Ok(cw::export::bundle_dated(&p, &r, date.as_deref()))
+}
+
+#[wasm_bindgen]
+pub fn packet_html(json: &str, date: Option<String>) -> Result<String, JsError> {
+    let p = project(json)?;
+    let r = cw::compute(&p);
+    Ok(cw::export::packet::packet_html(&p, &r, date.as_deref()))
 }
 
 /// kind: "cutlist" | "hardware" | "obj" | "part_dxf" | "sheet_dxf" | "sheet_svg" | "drawing" (index = cabinet)
@@ -37,6 +45,7 @@ pub fn export_one(json: &str, kind: &str, index: usize) -> Result<String, JsErro
         "cutlist" => cw::export::cutlist_csv(&p, &r.build),
         "hardware" => cw::export::hardware_csv(&p, &r.build),
         "labels" => cw::export::labels_csv(&p, &r),
+        "labels_html" => cw::export::packet::labels_html(&p, &r),
         "quote" => serde_json::to_string(&cw::export::quote::quote(&p, &r)).unwrap_or_default(),
         "quote_csv" => cw::export::quote::quote_csv(&cw::export::quote::quote(&p, &r)),
         "quote_html" => cw::export::quote::quote_html(&p, &cw::export::quote::quote(&p, &r), p.pricing.vat_pct),

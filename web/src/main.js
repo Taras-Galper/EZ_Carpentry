@@ -1154,9 +1154,11 @@ async function main() {
     e.target.value = "";
   };
   $("#save").onclick = () => saveFile(slug(project.name) + ".json", JSON.stringify(project, null, 2));
-  $("#zip").onclick = () => saveFile(slug(project.name) + "_cnc.zip", cw.export_zip(JSON.stringify(project)));
+  const today = () => new Date().toISOString().slice(0, 10);
+  $("#zip").onclick = () => saveFile(slug(project.name) + "_cnc.zip", cw.export_zip(JSON.stringify(project), today()));
+  $("#packet").onclick = () => saveFile(slug(project.name) + "_shop_packet.html", cw.packet_html(JSON.stringify(project), today()));
   $("#csv").onclick = () => saveFile(slug(project.name) + "_cutlist.csv", cw.export_one(JSON.stringify(project), "cutlist", 0));
-  $("#labels").onclick = () => saveFile(slug(project.name) + "_labels.csv", cw.export_one(JSON.stringify(project), "labels", 0));
+  $("#labels").onclick = () => saveFile(slug(project.name) + "_labels.html", cw.export_one(JSON.stringify(project), "labels_html", 0));
   $("#obj").onclick = () => saveFile(slug(project.name) + ".obj", cw.export_one(JSON.stringify(project), "obj", 0));
   $$("#tabs button[data-tab]").forEach((b) => (b.onclick = () => { tab = b.dataset.tab; renderTab(); }));
   $("#fronts").onchange = (e) => { showFronts = e.target.checked; updateScene(); };

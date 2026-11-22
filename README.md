@@ -74,6 +74,8 @@ casework export kitchen.json --zip kitchen.zip
 | `project.json` | Full project; reopen in the editor or feed to the CLI |
 | `cutlist.csv` | Cabinet, part, material, thickness, length (with grain), width, qty, edge banding L1 L2 W1 W2, bores |
 | `hardware.csv` | Hinges, slides, shelf pins, handles per cabinet + totals |
+| `shop_packet.html` | Printable job packet (A4): cover with totals, materials, construction and hardware checklist; cabinet list; cut list per material with tick boxes and sheet numbers; sheet layouts (landscape); shop drawings with per-cabinet hardware |
+| `labels.html` | Part labels, 3 × 8 per A4 (70 × 36 mm): part id, sheet, size along the grain, material, cabinet, edges, bores, a mini drawing and a Code 128 barcode of the part id. Print at 100 % |
 | `quote.html` | Printable customer quote: one line per cabinet and worktop, subtotal, VAT, total |
 | `quote.csv` | Internal costing: sheets, edge band, hardware, labour, markup, item prices, totals |
 | `labels.csv` | One row per physical part: id, cabinet, size, edges, bores, cut-outs, sheet number and position |
