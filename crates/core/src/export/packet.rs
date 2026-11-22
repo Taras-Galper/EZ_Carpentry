@@ -279,6 +279,9 @@ pub fn packet_html(project: &Project, report: &Report, date: Option<&str>) -> St
     }
 
     // ---------- drawings ----------
+    if let Some(svg) = drawing::plan_svg(project) {
+        let _ = write!(o, "<section><h2>Plan</h2><div class=drawing>{}</div></section>", svg);
+    }
     for wi in 0..project.room.walls.len() {
         if let Some(svg) = drawing::wall_svg(project, b, wi) {
             let _ = write!(o, "<section><h2>Wall {}</h2><div class=drawing>{}</div></section>", wi + 1, svg);

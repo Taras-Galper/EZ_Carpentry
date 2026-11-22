@@ -866,5 +866,8 @@ mod tests {
         let w2 = export::drawing::wall_svg(&p, &r.build, 1).unwrap();
         assert!(w2.contains(">b5</text>") && !w2.contains(">b2</text>"));
         assert!(export::drawing::wall_svg(&p, &r.build, 9).is_none());
+        let plan = export::drawing::plan_svg(&p).unwrap();
+        assert!(p.cabinets.iter().all(|c| plan.contains(&format!(">{}</text>", c.id))));
+        assert!(plan.contains(">3200</text>") && plan.contains(">2600</text>"));
     }
 }

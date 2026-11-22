@@ -36,6 +36,10 @@ for (const engine of ["wasm", "js"]) {
   });
   check(st.corner === "l", `${engine}: Wall L added and selected (${st.sel})`);
   await page.screenshot({ path: `${out}/${engine}-desk.png` });
+  await page.click('[data-tab="drawings"]');
+  await page.waitForTimeout(300);
+  const figs = await page.locator("#v-drawings figure").count();
+  check(figs > 0, `${engine}: drawings tab shows ${figs} drawings`);
   check(errors.length === 0, `${engine}: no page errors ${errors.join(" | ")}`);
   await page.close();
 }

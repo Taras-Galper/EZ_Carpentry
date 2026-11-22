@@ -429,3 +429,127 @@ text{{fill:#1f1d1a}}
     s.o.push_str("</svg>");
     Some(s.o)
 }
+
+/// Floor plan: room outline with doors and windows, every cabinet's
+/// footprint (wall units dashed) with its id, and each wall's length.
+/// `None` without a room.
+pub fn plan_svg(project: &Project) -> Option<String> {
+    let room = &project.room;
+    let walls = room.walls();
+    if walls.len() < 3 {
+        return None;
+    }
+    let (mut x0, mut z0, mut x1, mut z1) = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
+    for p in &room.walls {
+        x0 = x0.min(p[0]);
+        x1 = x1.max(p[0]);
+        z0 = z0.min(p[1]);
+        z1 = z1.max(p[1]);
+    }
+    let span = (x1 - x0).max(z1 - z0);
+    let fs = (span / 45.0).clamp(14.0, 60.0);
+    let th = room.thickness.max(0.0);
+    let m = fs * 7.0 + th;
+    let title_h = fs * 3.0;
+    let (ox, oy) = (m - x0, m + title_h - z0);
+    let cw = x1 - x0 + 2.0 * m;
+    let ch = z1 - z0 + 2.0 * m + title_h;
+    let px = |x: f64| ox + x;
+    let pz = |z: f64| oy + z;
+
+    let mut s = Svg { o: String::new(), fs };
+    let _ = write!(
+        s.o,
+        r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {cw:.0} {ch:.0}" width="{:.0}mm" height="{:.0}mm" font-family="sans-serif">
+<style>
+rect,polygon{{stroke:#222;stroke-width:{lw:.2}}}
+.wallband{{fill:#cfcac0;stroke:none}}.floor{{fill:#fafaf8}}.base{{fill:#e9dcc6}}.upper{{fill:none;stroke:#555;stroke-dasharray:{dash:.1}}}.tall{{fill:#d9c09c}}
+.door{{fill:#fafaf8;stroke:none}}.swing{{fill:none;stroke:#6b8fb3;stroke-width:{lw:.2}}}.window{{fill:#e8f0f7;stroke:#6b8fb3}}
+.dim{{stroke:#1d5fbf;stroke-width:{lw:.2}}}.ext{{stroke:#1d5fbf;stroke-width:{thin:.2};opacity:.6}}
+text{{fill:#1f1d1a}}
+</style>"##,
+        cw / 20.0,
+        ch / 20.0,
+        lw = fs / 12.0,
+        thin = fs / 20.0,
+        dash = fs / 3.0
+    );
+    s.text(fs * 2.0, fs * 2.5, &format!("{} · plan", project.name), "start", fs * 1.4, 0.0);
+    // walls: a band of the wall thickness outside the inside outline
+    for w in &walls {
+        let (a0, a1) = (w.point(0.0, 0.0), w.point(w.len, 0.0));
+        let (b1, b0) = (w.point(w.len + th, -th), w.point(-th, -th));
+        s.poly(&[(px(a0.0), pz(a0.1)), (px(a1.0), pz(a1.1)), (px(b1.0), pz(b1.1)), (px(b0.0), pz(b0.1))], "wallband");
+    }
+    let floor: Vec<(f64, f64)> = room.walls.iter().map(|p| (px(p[0]), pz(p[1]))).collect();
+    s.poly(&floor, "floor");
+    for o in &room.openings {
+        let Some(w) = room.wall(o.wall) else { continue };
+        let q = |t: f64, n: f64| {
+            let (x, z) = w.point(t, n);
+            (px(x), pz(z))
+        };
+        let pts = [q(o.offset, 0.5), q(o.offset + o.width, 0.5), q(o.offset + o.width, -th - 0.5), q(o.offset, -th - 0.5)];
+        if o.sill > 0.0 {
+            s.poly(&pts, "window");
+        } else {
+            s.poly(&pts, "door");
+            // swing: leaf from the hinge (opening start) into the room, quarter arc
+            let (hx, hy) = q(o.offset, 0.0);
+            let (lx, ly) = q(o.offset, o.width);
+            let (ex, ey) = q(o.offset + o.width, 0.0);
+            s.line(hx, hy, lx, ly, "swing");
+            let sweep = if (lx - hx) * (ey - hy) - (ly - hy) * (ex - hx) > 0.0 { 1 } else { 0 };
+            let _ = write!(s.o, r#"<path d="M{lx:.1} {ly:.1} A{r:.1} {r:.1} 0 0 {sweep} {ex:.1} {ey:.1}" class="swing"/>"#, r = o.width);
+        }
+    }
+    // cabinets: floor-standing first, wall units dashed on top
+    let mut cabs: Vec<&Cabinet> = project.cabinets.iter().collect();
+    cabs.sort_by(|a, b| (a.elevation > 0.0).cmp(&(b.elevation > 0.0)));
+    for c in cabs {
+        let cls = if c.elevation > 0.0 {
+            "upper"
+        } else if c.height > 1200.0 {
+            "tall"
+        } else {
+            "base"
+        };
+        for r in c.rects() {
+            let pts: Vec<(f64, f64)> = [(r[0], r[1]), (r[2], r[1]), (r[2], r[3]), (r[0], r[3])]
+                .iter()
+                .map(|&(x, z)| {
+                    let (wx, wz) = crate::parts::to_world(c.x, c.z, c.rotation, x, z);
+                    (px(wx), pz(wz))
+                })
+                .collect();
+            s.poly(&pts, cls);
+        }
+        let (cx, cz) = crate::parts::to_world(c.x, c.z, c.rotation, c.width / 2.0, c.depth / 2.0);
+        let dy = if c.elevation > 0.0 { -fs * 0.6 } else { fs * 0.4 };
+        s.text(px(cx), pz(cz) + dy, &c.id, "middle", fs * 0.8, 0.0);
+    }
+    // wall lengths, outside each wall
+    for w in &walls {
+        let off = th + fs * 2.5;
+        let (a, b) = (w.point(0.0, -off), w.point(w.len, -off));
+        let (a, b) = ((px(a.0), pz(a.1)), (px(b.0), pz(b.1)));
+        let (e0, e1) = (w.point(0.0, -th), w.point(w.len, -th));
+        s.line(px(e0.0), pz(e0.1), a.0, a.1, "ext");
+        s.line(px(e1.0), pz(e1.1), b.0, b.1, "ext");
+        s.line(a.0, a.1, b.0, b.1, "dim");
+        let t = fs * 0.35;
+        for p in [a, b] {
+            s.line(p.0 - t, p.1 + t, p.0 + t, p.1 - t, "dim");
+        }
+        let mut ang = (b.1 - a.1).atan2(b.0 - a.0).to_degrees();
+        // keep text upright; flipped text hangs below its baseline, so move it out past the line
+        let flip = ang > 90.0 || ang < -90.0;
+        if flip {
+            ang += 180.0;
+        }
+        let mid = w.point(w.len / 2.0, -off - if flip { fs * 1.1 } else { fs * 0.4 });
+        s.text(px(mid.0), pz(mid.1), &fmt(w.len), "middle", fs, ang);
+    }
+    s.o.push_str("</svg>");
+    Some(s.o)
+}

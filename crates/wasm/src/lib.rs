@@ -34,7 +34,7 @@ pub fn packet_html(json: &str, date: Option<String>) -> Result<String, JsError> 
     Ok(cw::export::packet::packet_html(&p, &r, date.as_deref()))
 }
 
-/// kind: "cutlist" | "hardware" | "obj" | "part_dxf" | "sheet_dxf" | "sheet_svg" | "drawing" (index = cabinet) | "wall" (index = wall)
+/// kind: "cutlist" | "hardware" | "obj" | "part_dxf" | "sheet_dxf" | "sheet_svg" | "drawing" (index = cabinet) | "wall" (index = wall) | "plan"
 #[wasm_bindgen]
 pub fn export_one(json: &str, kind: &str, index: usize) -> Result<String, JsError> {
     let p = project(json)?;
@@ -54,6 +54,7 @@ pub fn export_one(json: &str, kind: &str, index: usize) -> Result<String, JsErro
         "sheet_dxf" => cw::export::dxf::sheet_dxf(sheet()?, parts),
         "sheet_svg" => cw::export::sheet_svg(&p, sheet()?, parts),
         "sheet_nc" => cw::export::gcode::sheet_program(&p, sheet()?, parts, index),
+        "plan" => cw::export::drawing::plan_svg(&p).ok_or_else(|| JsError::new("no room"))?,
         "wall" => cw::export::drawing::wall_svg(&p, &r.build, index).ok_or_else(|| JsError::new("no such wall"))?,
         "drawing" => cw::export::drawing::cabinet_svg(&p, &r.build, p.cabinets.get(index).ok_or_else(|| JsError::new("no such cabinet"))?),
         _ => return Err(JsError::new("unknown export kind")),
