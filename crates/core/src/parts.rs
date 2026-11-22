@@ -89,6 +89,13 @@ pub struct Part {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub pockets: Vec<Pocket>,
     pub box3d: Box3,
+    /// Further boxes of the same part in 3D (L-shaped panels).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub more3d: Vec<Box3>,
+    /// Banded outline segments (i = outline[i] to outline[i + 1]) for
+    /// non-rectangular parts; `edges` covers rectangles.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub band_segs: Vec<usize>,
 }
 
 /// Rounded-rectangle through cut-out, drawing frame.
@@ -149,6 +156,26 @@ impl Cutout {
 }
 
 impl Part {
+    /// Banded edge length in mm.
+    pub fn band_length(&self) -> f64 {
+        let e = self.edges;
+        let rect = (if e[0] { self.w } else { 0.0 })
+            + (if e[2] { self.w } else { 0.0 })
+            + (if e[1] { self.h } else { 0.0 })
+            + (if e[3] { self.h } else { 0.0 });
+        let n = self.outline.len();
+        let segs: f64 = self
+            .band_segs
+            .iter()
+            .filter(|&&i| i < n)
+            .map(|&i| {
+                let (a, b) = (self.outline[i], self.outline[(i + 1) % n]);
+                ((b[0] - a[0]).powi(2) + (b[1] - a[1]).powi(2)).sqrt()
+            })
+            .sum();
+        rect + segs
+    }
+
     /// Index of this part in the build (parts are unique by id).
     pub fn id_index(&self, b: &Build) -> usize {
         b.parts.iter().position(|q| q.id == self.id).unwrap_or(0)
@@ -247,6 +274,8 @@ impl Ctx<'_> {
             cutouts: vec![],
             pockets: vec![],
             box3d,
+            more3d: vec![],
+            band_segs: vec![],
         });
         self.out.parts.len() - 1
     }
@@ -256,26 +285,15 @@ impl Ctx<'_> {
             return;
         }
         let name = name.into();
-        if let Some(h) = self
-            .out
-            .hardware
-            .iter_mut()
-            .find(|h| h.cabinet == self.cab.id && h.name == name)
-        {
+        if let Some(h) = self.out.hardware.iter_mut().find(|h| h.cabinet == self.cab.id && h.name == name) {
             h.qty += qty;
         } else {
-            self.out.hardware.push(Hardware {
-                cabinet: self.cab.id.clone(),
-                name,
-                qty,
-            });
+            self.out.hardware.push(Hardware { cabinet: self.cab.id.clone(), name, qty });
         }
     }
 
     fn warn(&mut self, msg: impl Into<String>) {
-        self.out
-            .warnings
-            .push(format!("{} ({}): {}", self.cab.name, self.cab.id, msg.into()));
+        self.out.warnings.push(format!("{} ({}): {}", self.cab.name, self.cab.id, msg.into()));
     }
 }
 
@@ -296,9 +314,7 @@ fn hinge_count(h: f64) -> usize {
 fn hinge_positions(h: f64) -> Vec<f64> {
     let n = hinge_count(h);
     let (a, b) = (100.0, h - 100.0);
-    (0..n)
-        .map(|i| a + (b - a) * i as f64 / (n - 1) as f64)
-        .collect()
+    (0..n).map(|i| a + (b - a) * i as f64 / (n - 1) as f64).collect()
 }
 
 /// Build every part and hardware item for a whole project.
@@ -366,20 +382,37 @@ fn build_special(project: &Project, cab: &Cabinet, out: &mut Build) {
     }
     let toe_board = |cx: &mut Ctx| {
         if toe > 0.0 && cab.kind != CabinetKind::Appliance {
-            cx.part("toe", "Toe kick", Role::Carcass, &cm, w, toe, false, [false, false, true, false],
-                Box3 { pos: [0.0, 0.0, d - tkd - t], size: [w, toe, t] });
+            cx.part(
+                "toe",
+                "Toe kick",
+                Role::Carcass,
+                &cm,
+                w,
+                toe,
+                false,
+                [false, false, true, false],
+                Box3 { pos: [0.0, 0.0, d - tkd - t], size: [w, toe, t] },
+            );
         }
     };
     match cab.kind {
         CabinetKind::Filler => {
-            cx.part("filler", "Filler", Role::Front, &fm, w, h - toe, true, [true; 4],
-                Box3 { pos: [0.0, toe, d], size: [w, h - toe, ft] });
+            cx.part("filler", "Filler", Role::Front, &fm, w, h - toe, true, [true; 4], Box3 { pos: [0.0, toe, d], size: [w, h - toe, ft] });
             toe_board(&mut cx);
         }
         CabinetKind::Dishwasher => {
             let (fw, fh) = (w - g, h - toe - g);
-            let idx = cx.part("panel", "Dishwasher panel", Role::Front, &fm, fw, fh, false, [true; 4],
-                Box3 { pos: [g / 2.0, toe + g / 2.0, d], size: [fw, fh, ft] });
+            let idx = cx.part(
+                "panel",
+                "Dishwasher panel",
+                Role::Front,
+                &fm,
+                fw,
+                fh,
+                false,
+                [true; 4],
+                Box3 { pos: [g / 2.0, toe + g / 2.0, d], size: [fw, fh, ft] },
+            );
             if cab.handles {
                 let sp = s.handle_spacing;
                 let y = fh - 60.0;
@@ -417,16 +450,32 @@ fn end_panels(project: &Project, cab: &Cabinet, out: &mut Build) {
     // Drawn like a left side: x from the front, y up; front and top banded.
     for (on, key, name, x) in [(cab.end_left, "end-l", "End panel L", -ft), (cab.end_right, "end-r", "End panel R", w)] {
         if on {
-            cx.part(key, name, Role::Front, &fm, d + ft, h, true, [false, false, true, true],
-                Box3 { pos: [x, 0.0, 0.0], size: [ft, h, d + ft] });
+            // An L corner's right end is its return arm's end side.
+            let b = if key == "end-r" && cab.is_l() {
+                Box3 { pos: [w - d - ft, 0.0, cab.width2], size: [d + ft, h, ft] }
+            } else {
+                Box3 { pos: [x, 0.0, 0.0], size: [ft, h, d + ft] }
+            };
+            cx.part(key, name, Role::Front, &fm, d + ft, h, true, [false, false, true, true], b);
         }
     }
-    if cab.back_finished {
+    if cab.back_finished && cab.is_l() {
+        cx.warn("finished backs are not built on L corners");
+    } else if cab.back_finished {
         // covers the end panels too
         let x0 = if cab.end_left { -ft } else { 0.0 };
         let x1 = if cab.end_right { w + ft } else { w };
-        cx.part("back-fin", "Finished back", Role::Front, &fm, x1 - x0, h, true, [false, true, true, true],
-            Box3 { pos: [x0, 0.0, -ft], size: [x1 - x0, h, ft] });
+        cx.part(
+            "back-fin",
+            "Finished back",
+            Role::Front,
+            &fm,
+            x1 - x0,
+            h,
+            true,
+            [false, true, true, true],
+            Box3 { pos: [x0, 0.0, -ft], size: [x1 - x0, h, ft] },
+        );
     }
 }
 
@@ -435,7 +484,17 @@ fn end_panels(project: &Project, cab: &Cabinet, out: &mut Build) {
 fn shaker_pieces(p: Part, f: f64, g: f64, pm: &Material) -> Vec<Part> {
     let (w, h) = (p.w, p.h);
     let [x0, y0, z0] = p.box3d.pos;
-    let ft = p.box3d.size[2];
+    // Fronts on an L corner's return face lie in the y-z plane.
+    let along_z = p.box3d.size[0] < p.box3d.size[2];
+    let ft = if along_z { p.box3d.size[0] } else { p.box3d.size[2] };
+    // (across the face, up, into the thickness) -> box
+    let fb = |u: f64, v: f64, off: f64, du: f64, dv: f64, th: f64| {
+        if along_z {
+            Box3 { pos: [x0 + off, y0 + v, z0 + u], size: [th, dv, du] }
+        } else {
+            Box3 { pos: [x0 + u, y0 + v, z0 + off], size: [du, dv, th] }
+        }
+    };
     let pt = pm.thickness.min(ft);
     let piece = |key: &str, name: &str, mat: &Material, pw: f64, ph: f64, grain_y: bool, b: Box3| Part {
         id: format!("{}-{}", p.id, key),
@@ -453,14 +512,16 @@ fn shaker_pieces(p: Part, f: f64, g: f64, pm: &Material) -> Vec<Part> {
         cutouts: vec![],
         pockets: vec![],
         box3d: b,
+        more3d: vec![],
+        band_segs: vec![],
     };
     let fm = Material { id: p.material.clone(), thickness: p.thickness, ..Material::default() };
     let rail_len = w - 2.0 * f + 2.0 * g;
     let mut out = vec![
-        piece("stl", "stile L", &fm, f, h, true, Box3 { pos: [x0, y0, z0], size: [f, h, ft] }),
-        piece("str", "stile R", &fm, f, h, true, Box3 { pos: [x0 + w - f, y0, z0], size: [f, h, ft] }),
-        piece("rb", "rail B", &fm, rail_len, f, false, Box3 { pos: [x0 + f, y0, z0], size: [w - 2.0 * f, f, ft] }),
-        piece("rt", "rail T", &fm, rail_len, f, false, Box3 { pos: [x0 + f, y0 + h - f, z0], size: [w - 2.0 * f, f, ft] }),
+        piece("stl", "stile L", &fm, f, h, true, fb(0.0, 0.0, 0.0, f, h, ft)),
+        piece("str", "stile R", &fm, f, h, true, fb(w - f, 0.0, 0.0, f, h, ft)),
+        piece("rb", "rail B", &fm, rail_len, f, false, fb(f, 0.0, 0.0, w - 2.0 * f, f, ft)),
+        piece("rt", "rail T", &fm, rail_len, f, false, fb(f, h - f, 0.0, w - 2.0 * f, f, ft)),
         piece(
             "pnl",
             "panel",
@@ -468,7 +529,7 @@ fn shaker_pieces(p: Part, f: f64, g: f64, pm: &Material) -> Vec<Part> {
             w - 2.0 * f + 2.0 * g - 2.0,
             h - 2.0 * f + 2.0 * g - 2.0,
             true,
-            Box3 { pos: [x0 + f, y0 + f, z0 + (ft - pt) / 2.0], size: [w - 2.0 * f, h - 2.0 * f, pt] },
+            fb(f, f, (ft - pt) / 2.0, w - 2.0 * f, h - 2.0 * f, pt),
         ),
     ];
     for hole in p.holes {
@@ -512,9 +573,30 @@ fn build_worktops(project: &Project, out: &mut Build) {
     let tm = project.material("top");
     let r2 = |v: f64| (v * 2.0).round() / 2.0;
     // (cabinet, position along its axis, offset across it)
+    // An L corner's return arm joins the perpendicular run as a virtual
+    // cabinet (id suffix "~b") starting where the main arm's depth ends.
+    let virt: Vec<Cabinet> = project
+        .cabinets
+        .iter()
+        .filter(|c| c.is_l() && c.under_worktop())
+        .map(|c| {
+            let (x, z) = to_world(c.x, c.z, c.rotation, c.width, c.depth);
+            Cabinet {
+                id: format!("{}~b", c.id),
+                x,
+                z,
+                rotation: c.rotation - 90.0,
+                width: c.width2 - c.depth,
+                corner: Corner::None,
+                cutout: CutoutKind::None,
+                ..c.clone()
+            }
+        })
+        .collect();
     let mut bases: Vec<(&Cabinet, f64, f64)> = project
         .cabinets
         .iter()
+        .chain(virt.iter())
         .filter(|c| c.under_worktop())
         .map(|c| {
             let (sn, cs) = c.rotation.to_radians().sin_cos();
@@ -522,11 +604,7 @@ fn build_worktops(project: &Project, out: &mut Build) {
         })
         .collect();
     let key = |c: &Cabinet, across: f64| (r2(c.rotation.rem_euclid(360.0)), across, c.elevation, c.height);
-    bases.sort_by(|a, b| {
-        (key(a.0, a.2), a.1)
-            .partial_cmp(&(key(b.0, b.2), b.1))
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
+    bases.sort_by(|a, b| (key(a.0, a.2), a.1).partial_cmp(&(key(b.0, b.2), b.1)).unwrap_or(std::cmp::Ordering::Equal));
     let mut runs: Vec<Vec<(&Cabinet, f64)>> = vec![];
     let mut last_key = None;
     for (c, along, across) in bases {
@@ -559,7 +637,7 @@ fn build_worktops(project: &Project, out: &mut Build) {
             Top {
                 first,
                 members: r.iter().map(|(c, a)| (*c, a - a0)).collect(),
-                ids: r.iter().map(|(c, _)| c.id.as_str()).collect::<Vec<_>>().join("+"),
+                ids: r.iter().map(|(c, _)| c.id.trim_end_matches("~b")).collect::<Vec<_>>().join("+"),
                 start: 0.0,
                 len: a1 + last.width - a0,
                 depth: r.iter().map(|(c, _)| c.depth).fold(0.0, f64::max) + s.worktop_overhang,
@@ -632,9 +710,20 @@ fn build_worktops(project: &Project, out: &mut Build) {
             }
             cutouts.push(Cutout { kind: c.cutout, x: r1(x), y: r1(y), w: cw, h: cd, r: cr });
         }
+        // Placed in the frame of the first real cabinet of the run; a run
+        // that is only an L's return arm goes in that L's own frame.
+        let (anchor, box3d, suffix) = match t.members.iter().find(|(c, _)| !c.id.ends_with("~b")) {
+            Some((c, off)) => (c.id.clone(), Box3 { pos: [t.start - off, c.height, 0.0], size: [t.len, th, t.depth] }, ""),
+            None => {
+                let id = t.first.id.trim_end_matches("~b").to_string();
+                let real = project.cabinets.iter().find(|c| c.id == id).unwrap_or(t.first);
+                let b = Box3 { pos: [real.width - t.depth, real.height, real.depth + t.start], size: [t.depth, th, t.len] };
+                (id, b, "2")
+            }
+        };
         out.parts.push(Part {
-            id: format!("{}-worktop", t.first.id),
-            cabinet: t.first.id.clone(),
+            id: format!("{}-worktop{}", anchor, suffix),
+            cabinet: anchor,
             name: "Worktop".into(),
             role: Role::Worktop,
             material: tm.id.clone(),
@@ -647,13 +736,12 @@ fn build_worktops(project: &Project, out: &mut Build) {
             holes: vec![],
             cutouts,
             pockets: vec![],
-            box3d: Box3 { pos: [t.start, t.first.height, 0.0], size: [t.len, th, t.depth] },
+            box3d,
+            more3d: vec![],
+            band_segs: vec![],
         });
         if t.len > tm.sheet_length - 2.0 * s.sheet_trim {
-            out.warnings.push(format!(
-                "Worktop over {} is {:.0} mm, longer than the {} blank",
-                t.ids, t.len, tm.name
-            ));
+            out.warnings.push(format!("Worktop over {} is {:.0} mm, longer than the {} blank", t.ids, t.len, tm.name));
         }
     }
 }
@@ -663,8 +751,248 @@ fn build_cabinet(project: &Project, cab: &Cabinet, out: &mut Build) {
         build_special(project, cab, out);
         return;
     }
-    build_carcass(project, cab, out);
+    if cab.is_l() {
+        build_lcorner(project, cab, out);
+    } else {
+        build_carcass(project, cab, out);
+    }
     end_panels(project, cab, out);
+}
+
+/// Map local (x, z) points to an L panel's drawing frame (seen from
+/// above, front down): x_d = x - x0, y_d = y1 - z. Counter-clockwise.
+fn plan_outline(pts: &[(f64, f64)], x0: f64, z1: f64) -> Vec<[f64; 2]> {
+    let mut o: Vec<[f64; 2]> = pts.iter().map(|&(x, z)| [r1(x - x0), r1(z1 - z)]).collect();
+    let a2: f64 = (0..o.len())
+        .map(|i| {
+            let (a, b) = (o[i], o[(i + 1) % o.len()]);
+            a[0] * b[1] - b[0] * a[1]
+        })
+        .sum();
+    if a2 < 0.0 {
+        o.reverse();
+    }
+    o
+}
+
+/// Outline segments whose both ends satisfy `on`.
+fn segs_where(o: &[[f64; 2]], on: impl Fn([f64; 2], [f64; 2]) -> bool) -> Vec<usize> {
+    (0..o.len()).filter(|&i| on(o[i], o[(i + 1) % o.len()])).collect()
+}
+
+/// L-shaped corner unit. Arm A runs along the back (x 0..W, z 0..D),
+/// arm B along the right (x W-D..W, z 0..W2). Applied backs on both
+/// walls, L bottom/top/shelves, a left side and an end side, and a
+/// bi-fold door pair across the two open faces.
+fn build_lcorner(project: &Project, cab: &Cabinet, out: &mut Build) {
+    let s = &project.settings;
+    let cm = project.material(&cab.carcass_material);
+    let bm = project.material(&cab.back_material);
+    let fm = project.material(&cab.front_material);
+    let start = out.parts.len();
+    let mut cx = Ctx { cab, out };
+    let (w, h, d, w2) = (cab.width, cab.height, cab.depth, cab.width2);
+    let (t, bt, ft, g) = (cm.thickness, bm.thickness, fm.thickness, s.front_gap);
+    if w < d + 250.0 || w2 < d + 250.0 || h < 2.0 * t + 50.0 || d < bt + 100.0 {
+        cx.warn("too small for an L corner: each arm needs at least depth + 250 mm");
+        return;
+    }
+    if !cab.drawers.is_empty() {
+        cx.warn("drawers are not built in L corner cabinets");
+    }
+    if s.back_mode == BackMode::Grooved {
+        cx.warn("L corners use applied backs");
+    }
+    let toe = if cab.kind == CabinetKind::Wall { 0.0 } else { cab.toe_kick_height.max(0.0) };
+    let tkd = cab.toe_kick_depth.clamp(0.0, d * 0.5);
+    let legs = s.plinth == Plinth::Legs && toe > 0.0;
+    let side_y0 = if legs { toe } else { 0.0 };
+    let side_h = h - side_y0;
+    let cd = d - bt; // side depth
+    let xb = w - d; // arm B front face (local x)
+    let xr = w - bt; // inside of back B
+    let ze = w2 - t; // inside of the end side
+    let sl = s.system_line;
+    let (side_dia, side_depth, edge_dia, edge_depth) = match s.joinery {
+        Joinery::Confirmat => (7.0, 0.0, 5.0, 45.0),
+        Joinery::Dowel => (8.0, 12.0, 8.0, 25.0),
+    };
+    // Side holes, x from the front of each side, y from the floor.
+    let mut side_l: Vec<Hole> = vec![];
+    let mut side_e: Vec<Hole> = vec![];
+    let at = [50.0, cd / 2.0, cd - 50.0];
+
+    // ---------- L panels: bottom, top ----------
+    let l_panel = |cx: &mut Ctx, key: &str, name: &str, role: Role, y: f64, inset: f64, notch: f64| -> usize {
+        // inset: clearance from sides/backs (shelves); notch: setback from the fronts
+        let (x0, x1, z0, z1) = (t + inset, xr - inset, bt + inset, ze - inset);
+        let (xn, zn) = (xb + notch, d - notch);
+        let pts = [(x0, z0), (x1, z0), (x1, z1), (xn, z1), (xn, zn), (x0, zn)];
+        let idx =
+            cx.part(key, name, role, &cm, x1 - x0, z1 - z0, false, [false; 4], Box3 { pos: [x0, y, z0], size: [x1 - x0, t, zn - z0] });
+        let p = &mut cx.out.parts[idx];
+        p.outline = plan_outline(&pts, x0, z1);
+        // banded: the two front edges (drawing: y_d = z1 - zn, x_d = xn - x0)
+        let (yf, xf) = (r1(z1 - zn), r1(xn - x0));
+        p.band_segs = segs_where(&p.outline, |a, b| {
+            (a[1] == yf && b[1] == yf && a[0].max(b[0]) <= xf + 0.01)
+                || (a[0] == xf && b[0] == xf && a[1].min(b[1]) >= -0.01 && a[1].max(b[1]) <= yf + 0.01)
+        });
+        p.more3d.push(Box3 { pos: [xn, y, zn], size: [x1 - xn, t, z1 - zn] });
+        idx
+    };
+    let mut joined = vec![];
+    for (key, name, y) in [("bottom", "Bottom", toe), ("top", "Top", h - t)] {
+        let idx = l_panel(&mut cx, key, name, Role::Carcass, y, 0.0, 0.0);
+        for &x in &at {
+            let hole = Hole { x, y: y + t / 2.0, dia: side_dia, depth: side_depth, edge: None };
+            side_l.push(hole.clone());
+            side_e.push(hole);
+        }
+        joined.push(idx);
+    }
+    // Edge bores: left edge (x_d = 0) at z = d - x; end edge (y_d = 0) at x = xb + x.
+    for idx in joined {
+        let p = &mut cx.out.parts[idx];
+        for &a in &at {
+            p.holes.push(Hole { x: 0.0, y: r1(ze - (d - a)), dia: edge_dia, depth: edge_depth, edge: Some(3) });
+            p.holes.push(Hole { x: r1(xb + a - t), y: 0.0, dia: edge_dia, depth: edge_depth, edge: Some(0) });
+        }
+    }
+
+    // ---------- backs ----------
+    cx.part("back", "Back", Role::Back, &bm, w, h - toe, true, [false; 4], Box3 { pos: [0.0, toe, 0.0], size: [w, h - toe, bt] });
+    cx.part(
+        "back2",
+        "Back 2",
+        Role::Back,
+        &bm,
+        w2 - bt,
+        h - toe,
+        true,
+        [false; 4],
+        Box3 { pos: [xr, toe, bt], size: [bt, h - toe, w2 - bt] },
+    );
+
+    // ---------- toe kicks ----------
+    if toe > 0.0 {
+        let tn = if legs { "Plinth" } else { "Toe kick" };
+        let za = d - tkd - t; // back face of toe A
+        let xa = xb + tkd; // front face of toe B
+        cx.part("toe", tn, Role::Carcass, &cm, xa, toe, false, [false, false, true, false], Box3 { pos: [t, 0.0, za], size: [xa, toe, t] });
+        cx.part(
+            "toe2",
+            &format!("{tn} 2"),
+            Role::Carcass,
+            &cm,
+            ze - (za + t),
+            toe,
+            false,
+            [false, false, true, false],
+            Box3 { pos: [xa, 0.0, za + t], size: [t, toe, ze - (za + t)] },
+        );
+        if legs {
+            cx.hw(format!("Adjustable leg {:.0} mm", toe), 7);
+            cx.hw("Plinth clip", 4);
+        }
+    }
+
+    // ---------- doors: bi-fold pair ----------
+    if cab.doors > 0 && h - toe > 100.0 {
+        let fh = h - toe - g;
+        let y0 = toe + g / 2.0;
+        let wa = xb - ft - g; // leaf A, on the left side
+        let wb = w2 - d - g; // leaf B, folds onto A
+        let a = cx.part("door1", "Door 1", Role::Front, &fm, wa, fh, true, [true; 4], Box3 { pos: [g / 2.0, y0, d], size: [wa, fh, ft] });
+        let b = cx.part(
+            "door2",
+            "Door 2",
+            Role::Front,
+            &fm,
+            wb,
+            fh,
+            true,
+            [true; 4],
+            Box3 { pos: [xb - ft, y0, d + g / 2.0], size: [ft, fh, wb] },
+        );
+        let hy = hinge_positions(fh);
+        let inset = s.hinge_cup_inset;
+        for &y in &hy {
+            // inside face up: A's left-side hinge on the drawing right, fold edge on the left;
+            // B's fold edge (near the corner) on its drawing right.
+            cx.out.parts[a].holes.push(Hole { x: r1(wa - inset), y: r1(y), dia: 35.0, depth: 13.0, edge: None });
+            cx.out.parts[a].holes.push(Hole { x: inset, y: r1(y), dia: 35.0, depth: 13.0, edge: None });
+            cx.out.parts[b].holes.push(Hole { x: r1(wb - inset), y: r1(y), dia: 35.0, depth: 13.0, edge: None });
+            let yw = y0 + y;
+            side_l.push(Hole { x: sl, y: yw - 16.0, dia: 5.0, depth: 12.0, edge: None });
+            side_l.push(Hole { x: sl, y: yw + 16.0, dia: 5.0, depth: 12.0, edge: None });
+        }
+        cx.hw("Clip hinge 110° + plate", hy.len() as u32);
+        cx.hw("Bi-fold corner hinge 170°", hy.len() as u32);
+        if cab.handles {
+            let sp = s.handle_spacing;
+            let yc = if cab.kind == CabinetKind::Wall { 60.0 + sp / 2.0 } else { fh - 60.0 - sp / 2.0 };
+            let p = &mut cx.out.parts[b];
+            p.holes.push(Hole { x: 40.0, y: r1(yc - sp / 2.0), dia: 5.0, depth: 0.0, edge: None });
+            p.holes.push(Hole { x: 40.0, y: r1(yc + sp / 2.0), dia: 5.0, depth: 0.0, edge: None });
+            cx.hw(format!("Handle {}mm", sp), 1);
+        }
+    }
+
+    // ---------- shelves ----------
+    let (in_lo, in_hi) = (toe + t, h - t);
+    if cab.shelves > 0 && in_hi - in_lo > 150.0 {
+        let mut rows = vec![];
+        let mut y = in_lo + 64.0;
+        while y < in_hi - 64.0 {
+            rows.push(y);
+            y += 32.0;
+        }
+        for &y in &rows {
+            for x in [sl, cd - sl] {
+                side_l.push(Hole { x, y, dia: 5.0, depth: 12.0, edge: None });
+                side_e.push(Hole { x, y, dia: 5.0, depth: 12.0, edge: None });
+            }
+        }
+        let n = cab.shelves;
+        for i in 0..n {
+            let target = in_lo + (in_hi - in_lo) * (i + 1) as f64 / (n + 1) as f64;
+            let ys = rows.iter().copied().min_by(|a, b| (a - target).abs().total_cmp(&(b - target).abs())).unwrap_or(target);
+            l_panel(&mut cx, &format!("shelf{}", i + 1), &format!("Shelf {}", i + 1), Role::Shelf, ys, 1.0, s.shelf_setback);
+        }
+        cx.hw("Shelf pin 5mm", 4 * n);
+        cx.hw("Shelf support bracket", n);
+    }
+
+    shakerize(project, cab, cx.out, start);
+
+    // ---------- sides ----------
+    let notch = |p: &mut Part| {
+        if toe > 0.0 && tkd > 0.0 && !legs {
+            p.outline = vec![[0.0, r1(toe)], [r1(tkd), r1(toe)], [r1(tkd), 0.0], [r1(cd), 0.0], [r1(cd), r1(h)], [0.0, r1(h)]];
+        }
+    };
+    for (key, name, holes, b) in [
+        ("side-l", "Left side", side_l, Box3 { pos: [0.0, side_y0, bt], size: [t, side_h, cd] }),
+        ("side-r", "End side", side_e, Box3 { pos: [xb, side_y0, ze], size: [cd, side_h, t] }),
+    ] {
+        let idx = cx.part(key, name, Role::Carcass, &cm, cd, side_h, true, [false, false, false, true], b);
+        let p = &mut cx.out.parts[idx];
+        notch(p);
+        p.holes = holes
+            .into_iter()
+            .map(|mut h| {
+                h.x = r1(h.x);
+                h.y = r1(h.y - side_y0);
+                h
+            })
+            .collect();
+        if key == "side-r" {
+            p.mirror_x();
+        }
+    }
+    let n = cx.out.parts.len();
+    cx.out.parts[start..n].rotate_right(2);
 }
 
 fn build_carcass(project: &Project, cab: &Cabinet, out: &mut Build) {
@@ -683,11 +1011,7 @@ fn build_carcass(project: &Project, cab: &Cabinet, out: &mut Build) {
         cx.warn("too small to build");
         return;
     }
-    let toe = if cab.kind == CabinetKind::Wall {
-        0.0
-    } else {
-        cab.toe_kick_height.max(0.0)
-    };
+    let toe = if cab.kind == CabinetKind::Wall { 0.0 } else { cab.toe_kick_height.max(0.0) };
     let tkd = cab.toe_kick_depth.clamp(0.0, d * 0.5);
     // On legs the sides start above the plinth; holes are shifted to match.
     let legs = s.plinth == Plinth::Legs && toe > 0.0;
@@ -758,17 +1082,8 @@ fn build_carcass(project: &Project, cab: &Cabinet, out: &mut Build) {
             [true, false, false, false],
             Box3 { pos: [t, yt, d - rw], size: [iw, t, rw] },
         );
-        let rb = cx.part(
-            "rail-b",
-            "Top rail back",
-            Role::Carcass,
-            &cm,
-            iw,
-            rw,
-            false,
-            [false; 4],
-            Box3 { pos: [t, yt, z0], size: [iw, t, rw] },
-        );
+        let rb =
+            cx.part("rail-b", "Top rail back", Role::Carcass, &cm, iw, rw, false, [false; 4], Box3 { pos: [t, yt, z0], size: [iw, t, rw] });
         for x in [rw / 2.0, cd - rw / 2.0] {
             both(&mut side_l, &mut side_r, Hole { x, y: yt + t / 2.0, dia: side_dia, depth: side_depth, edge: None });
         }
@@ -841,17 +1156,7 @@ fn build_carcass(project: &Project, cab: &Cabinet, out: &mut Build) {
         let groove = Pocket { x: r1(back_groove_y(cd)), y: 0.0, w: gw, h: side_h, depth: gd, r: 0.0, face: 1 };
         side_pockets.push(groove);
     } else {
-        cx.part(
-            "back",
-            "Back",
-            Role::Back,
-            &bm,
-            w,
-            h - toe,
-            true,
-            [false; 4],
-            Box3 { pos: [0.0, toe, 0.0], size: [w, h - toe, bt] },
-        );
+        cx.part("back", "Back", Role::Back, &bm, w, h - toe, true, [false; 4], Box3 { pos: [0.0, toe, 0.0], size: [w, h - toe, bt] });
     }
 
     // ---------- fronts ----------
@@ -870,11 +1175,7 @@ fn build_carcass(project: &Project, cab: &Cabinet, out: &mut Build) {
         cx.warn("drawers are not built in blind corner cabinets");
     }
     let drawers: &[f64] = if blind { &[] } else { &cab.drawers };
-    let slide_len = SLIDE_LENGTHS
-        .iter()
-        .rev()
-        .copied()
-        .find(|l| *l <= idp - 10.0);
+    let slide_len = SLIDE_LENGTHS.iter().rev().copied().find(|l| *l <= idp - 10.0);
     for (i, &dh) in drawers.iter().enumerate() {
         let lo = (cursor - dh).max(toe);
         let fh = cursor - lo - g;
@@ -992,10 +1293,7 @@ fn build_carcass(project: &Project, cab: &Cabinet, out: &mut Build) {
             vec![(ox0 + g / 2.0, ow - g, side)]
         } else if cab.doors >= 2 {
             let lw = ow / 2.0 - g;
-            vec![
-                (ox0 + g / 2.0, lw, HingeSide::Left),
-                (ox0 + ow / 2.0 + g / 2.0, lw, HingeSide::Right),
-            ]
+            vec![(ox0 + g / 2.0, lw, HingeSide::Left), (ox0 + ow / 2.0 + g / 2.0, lw, HingeSide::Right)]
         } else {
             vec![(ox0 + g / 2.0, ow - g, cab.hinge_side)]
         };
@@ -1131,11 +1429,7 @@ fn build_carcass(project: &Project, cab: &Cabinet, out: &mut Build) {
         let sw = iw - 2.0;
         for i in 0..n {
             let target = in_lo + (in_hi - in_lo) * (i + 1) as f64 / (n + 1) as f64;
-            let ys = rows
-                .iter()
-                .copied()
-                .min_by(|a, b| (a - target).abs().total_cmp(&(b - target).abs()))
-                .unwrap_or(target);
+            let ys = rows.iter().copied().min_by(|a, b| (a - target).abs().total_cmp(&(b - target).abs())).unwrap_or(target);
             cx.part(
                 &format!("shelf{}", i + 1),
                 &format!("Shelf {}", i + 1),
@@ -1155,10 +1449,7 @@ fn build_carcass(project: &Project, cab: &Cabinet, out: &mut Build) {
     shakerize(project, cab, cx.out, start);
 
     // ---------- sides (added last so all holes are known) ----------
-    for (key, name, holes, x) in [
-        ("side-l", "Left side", side_l, 0.0),
-        ("side-r", "Right side", side_r, w - t),
-    ] {
+    for (key, name, holes, x) in [("side-l", "Left side", side_l, 0.0), ("side-r", "Right side", side_r, w - t)] {
         let idx = cx.part(
             key,
             name,
@@ -1173,14 +1464,7 @@ fn build_carcass(project: &Project, cab: &Cabinet, out: &mut Build) {
         let p = &mut cx.out.parts[idx];
         p.pockets = side_pockets.clone();
         if toe > 0.0 && tkd > 0.0 && !legs {
-            p.outline = vec![
-                [0.0, r1(toe)],
-                [r1(tkd), r1(toe)],
-                [r1(tkd), 0.0],
-                [r1(cd), 0.0],
-                [r1(cd), r1(h)],
-                [0.0, r1(h)],
-            ];
+            p.outline = vec![[0.0, r1(toe)], [r1(tkd), r1(toe)], [r1(tkd), 0.0], [r1(cd), 0.0], [r1(cd), r1(h)], [0.0, r1(h)]];
         }
         p.holes = holes
             .into_iter()

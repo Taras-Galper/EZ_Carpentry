@@ -52,12 +52,7 @@ fn money(v: f64) -> f64 {
 }
 
 fn band_m(p: &crate::parts::Part) -> f64 {
-    let e = p.edges;
-    ((if e[0] { p.w } else { 0.0 })
-        + (if e[2] { p.w } else { 0.0 })
-        + (if e[1] { p.h } else { 0.0 })
-        + (if e[3] { p.h } else { 0.0 }))
-        / 1000.0
+    p.band_length() / 1000.0
 }
 
 pub fn quote(project: &Project, report: &Report) -> Quote {
@@ -232,7 +227,9 @@ pub fn quote(project: &Project, report: &Report) -> Quote {
 
 /// One-line customer description of a cabinet.
 pub fn describe(project: &Project, report: &Report, id: &str) -> String {
-    let Some(c) = project.cabinets.iter().find(|c| c.id == id) else { return String::new() };
+    let Some(c) = project.cabinets.iter().find(|c| c.id == id) else {
+        return String::new();
+    };
     match c.kind {
         CabinetKind::Filler => return format!("Filler {:.0}×{:.0}, {}", c.width, c.height, project.material(&c.front_material).name),
         CabinetKind::Dishwasher => {
@@ -258,7 +255,8 @@ pub fn describe(project: &Project, report: &Report, id: &str) -> String {
             tail.starts_with("door") && (!tail.contains('-') || tail.ends_with("-stl"))
         })
         .count();
-    let drawers = report.build.parts.iter().filter(|p| p.cabinet == c.id && p.name.ends_with("side") && p.role == Role::DrawerBox).count() / 2;
+    let drawers =
+        report.build.parts.iter().filter(|p| p.cabinet == c.id && p.name.ends_with("side") && p.role == Role::DrawerBox).count() / 2;
     if doors > 0 {
         bits.push(format!("{} door{}", doors, if doors > 1 { "s" } else { "" }));
     }

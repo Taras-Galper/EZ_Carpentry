@@ -93,18 +93,11 @@ fn front_hole(p: &Part, hx: f64, hy: f64) -> (f64, f64) {
 }
 
 pub fn cabinet_svg(project: &Project, build: &Build, cab: &Cabinet) -> String {
-    let parts: Vec<&Part> = build
-        .parts
-        .iter()
-        .filter(|p| p.cabinet == cab.id && p.role != Role::Worktop)
-        .collect();
+    let parts: Vec<&Part> = build.parts.iter().filter(|p| p.cabinet == cab.id && p.role != Role::Worktop).collect();
     let (w, h, d) = (cab.width, cab.height, cab.depth);
-    let ft = parts
-        .iter()
-        .filter(|p| p.role == Role::Front)
-        .map(|p| p.box3d.size[2])
-        .fold(0.0, f64::max);
+    let ft = parts.iter().filter(|p| p.role == Role::Front).map(|p| p.thickness).fold(0.0, f64::max);
     let dd = d + ft; // depth including fronts
+    let pd = if cab.is_l() { dd.max(cab.width2) } else { dd }; // plan extent: an L's return arm
     let fs = (w.max(h) / 38.0).clamp(14.0, 40.0);
     let m = fs * 6.0; // margin for dimensions
     let gap = fs * 9.0;
@@ -112,8 +105,8 @@ pub fn cabinet_svg(project: &Project, build: &Build, cab: &Cabinet) -> String {
     let (fx, fy) = (m, m + title_h); // front view top-left
     let (sx, sy) = (fx + w + gap, fy); // side view top-left
     let (px, py) = (fx, fy + h + gap); // plan top-left
-    let cw = sx + dd + m;
-    let ch = py + dd + m;
+    let cw = sx + pd + m;
+    let ch = py + pd + m;
 
     let mut s = Svg { o: String::new(), fs };
     let _ = write!(
@@ -140,7 +133,12 @@ text{{fill:#1f1d1a}}.ttl{{font-weight:700}}
         m + fs * 1.8,
         &format!(
             "{:.0} × {:.0} × {:.0} · {:?} · carcass {} · fronts {}",
-            w, h, d, cab.kind, mat(&cab.carcass_material), mat(&cab.front_material)
+            w,
+            h,
+            d,
+            cab.kind,
+            mat(&cab.carcass_material),
+            mat(&cab.front_material)
         ),
         "start",
         fs * 0.85,
@@ -196,11 +194,7 @@ text{{fill:#1f1d1a}}.ttl{{font-weight:700}}
         }
     }
     ys.sort_by(|a, b| a.total_cmp(b));
-    let toe = parts
-        .iter()
-        .find(|p| p.id.ends_with("-bottom"))
-        .map(|p| p.box3d.pos[1])
-        .unwrap_or(0.0);
+    let toe = parts.iter().find(|p| p.id.ends_with("-bottom")).map(|p| p.box3d.pos[1]).unwrap_or(0.0);
     if toe > 0.0 && !ys.iter().any(|q| q.abs() < 0.5) {
         ys.insert(0, 0.0);
     }
@@ -255,11 +249,7 @@ text{{fill:#1f1d1a}}.ttl{{font-weight:700}}
         s.hdim(u(d + ft), u(d), sy0 + fs * 4.5, sy0 + fs * 0.4);
     }
     // shelf positions (top of shelf from floor)
-    let mut shelf_y: Vec<f64> = parts
-        .iter()
-        .filter(|p| p.role == Role::Shelf)
-        .map(|p| p.box3d.pos[1] + p.box3d.size[1])
-        .collect();
+    let mut shelf_y: Vec<f64> = parts.iter().filter(|p| p.role == Role::Shelf).map(|p| p.box3d.pos[1] + p.box3d.size[1]).collect();
     shelf_y.sort_by(|a, b| a.total_cmp(b));
     let mut prev = toe + parts.iter().find(|p| p.id.ends_with("-bottom")).map(|p| p.box3d.size[1]).unwrap_or(0.0);
     for y in shelf_y {
@@ -270,9 +260,11 @@ text{{fill:#1f1d1a}}.ttl{{font-weight:700}}
     // ---------- plan (x right, front at the bottom) ----------
     let pv = |z: f64| py + z;
     for p in parts.iter().filter(|p| p.role != Role::Front) {
-        let [x, _, z] = p.box3d.pos;
-        let [bx, _, bz] = p.box3d.size;
-        s.rect(px + x, pv(z), bx, bz, if p.role == Role::Carcass || p.role == Role::Back { "carcass" } else { "ghost" });
+        for b in std::iter::once(&p.box3d).chain(p.more3d.iter()) {
+            let [x, _, z] = b.pos;
+            let [bx, _, bz] = b.size;
+            s.rect(px + x, pv(z), bx, bz, if p.role == Role::Carcass || p.role == Role::Back { "carcass" } else { "ghost" });
+        }
     }
     for p in &fronts {
         let [x, _, z] = p.box3d.pos;
@@ -280,8 +272,8 @@ text{{fill:#1f1d1a}}.ttl{{font-weight:700}}
         s.rect(px + x, pv(z), bx, bz, "front");
     }
     s.text(px + w / 2.0, py - fs * 0.8, "PLAN", "middle", fs * 0.9, 0.0);
-    s.hdim(px, px + w, pv(dd) + fs * 2.5, pv(dd) + fs * 0.4);
-    s.vdim(pv(dd), pv(0.0), px - fs * 2.5, px - fs * 0.4);
+    s.hdim(px, px + w, pv(pd) + fs * 2.5, pv(pd) + fs * 0.4);
+    s.vdim(pv(pd), pv(0.0), px - fs * 2.5, px - fs * 0.4);
 
     s.o.push_str("</svg>");
     s.o

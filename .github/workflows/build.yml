@@ -25,6 +25,10 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt --check
+        if: runner.os == 'Linux'
       - run: cargo test -p casework-core
       - run: cargo build --release -p casework
       - uses: actions/upload-artifact@v6

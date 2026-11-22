@@ -60,14 +60,7 @@ pub struct Cnc {
 
 impl Default for Cnc {
     fn default() -> Self {
-        let drill = |n: u32, d: f64, rpm: f64| Tool {
-            number: n,
-            name: format!("Drill Ø{d}"),
-            dia: d,
-            feed: 0.0,
-            plunge: 2000.0,
-            rpm,
-        };
+        let drill = |n: u32, d: f64, rpm: f64| Tool { number: n, name: format!("Drill Ø{d}"), dia: d, feed: 0.0, plunge: 2000.0, rpm };
         Self {
             router: Tool::default(),
             groove_router: Tool { number: 2, name: "Router Ø6 straight".into(), dia: 6.0, feed: 6000.0, plunge: 1500.0, rpm: 18000.0 },
@@ -153,7 +146,11 @@ impl G {
 fn f(v: f64) -> String {
     let s = format!("{:.3}", v);
     let s = s.trim_end_matches('0').trim_end_matches('.');
-    if s == "-0" { "0".into() } else { s.into() }
+    if s == "-0" {
+        "0".into()
+    } else {
+        s.into()
+    }
 }
 
 fn clean(s: &str) -> String {
@@ -163,10 +160,12 @@ fn clean(s: &str) -> String {
 /// Offset a closed polygon. Positive `d` grows a counter-clockwise polygon.
 pub fn offset(poly: &[(f64, f64)], d: f64) -> Vec<(f64, f64)> {
     let n = poly.len();
-    let area2: f64 = (0..n).map(|i| {
-        let (a, b) = (poly[i], poly[(i + 1) % n]);
-        a.0 * b.1 - b.0 * a.1
-    }).sum();
+    let area2: f64 = (0..n)
+        .map(|i| {
+            let (a, b) = (poly[i], poly[(i + 1) % n]);
+            a.0 * b.1 - b.0 * a.1
+        })
+        .sum();
     let d = if area2 >= 0.0 { d } else { -d };
     let mut out = Vec::with_capacity(n);
     for i in 0..n {
@@ -250,14 +249,18 @@ fn pocket_rect(g: &mut G, t: &Tool, x0: f64, y0: f64, x1: f64, y1: f64, depth: f
             let mut y = ay;
             loop {
                 lines.push(((ax, y), (bx, y)));
-                if y >= by - 1e-6 { break; }
+                if y >= by - 1e-6 {
+                    break;
+                }
                 y = (y + step).min(by);
             }
         } else {
             let mut x = ax;
             loop {
                 lines.push(((x, ay), (x, by)));
-                if x >= bx - 1e-6 { break; }
+                if x >= bx - 1e-6 {
+                    break;
+                }
                 x = (x + step).min(bx);
             }
         }
@@ -287,10 +290,18 @@ fn place(pl: &Placement, p: &Part, x: f64, y: f64) -> (f64, f64) {
 /// (a groove that must be open at the end, e.g. for a back panel).
 fn pocket_sheet_rect(pl: &Placement, p: &Part, k: &Pocket, tool_r: f64) -> (f64, f64, f64, f64) {
     let (mut x0, mut y0, mut x1, mut y1) = (k.x, k.y, k.x + k.w, k.y + k.h);
-    if x0 <= 1e-6 { x0 -= tool_r; }
-    if y0 <= 1e-6 { y0 -= tool_r; }
-    if x1 >= p.w - 1e-6 { x1 += tool_r; }
-    if y1 >= p.h - 1e-6 { y1 += tool_r; }
+    if x0 <= 1e-6 {
+        x0 -= tool_r;
+    }
+    if y0 <= 1e-6 {
+        y0 -= tool_r;
+    }
+    if x1 >= p.w - 1e-6 {
+        x1 += tool_r;
+    }
+    if y1 >= p.h - 1e-6 {
+        y1 += tool_r;
+    }
     let (a, b) = place(pl, p, x0, y0);
     let (c, d) = place(pl, p, x1, y1);
     (a.min(c), b.min(d), a.max(c), b.max(d))
@@ -353,7 +364,12 @@ pub fn sheet_program(project: &Project, sheet: &Sheet, parts: &[Part], index: us
         .collect();
     let mut title = format!(
         "EZ Carpentry - {} - sheet {} - {} {}x{}x{}\nOrigin: sheet lower-left corner, Z0 = top of material",
-        project.name, index + 1, m.name, sheet.length, sheet.width, th
+        project.name,
+        index + 1,
+        m.name,
+        sheet.length,
+        sheet.width,
+        th
     );
     if edge_bores > 0 {
         title.push_str(&format!("\nNOT IN THIS PROGRAM: {edge_bores} edge bores, drill on the edge borer (see part DXFs, HDRILL layers)"));

@@ -41,18 +41,7 @@ pub fn compute(project: &Project) -> Report {
             None => sheets.push((name, 1)),
         }
     }
-    let band: f64 = build
-        .parts
-        .iter()
-        .map(|p| {
-            let e = p.edges;
-            (if e[0] { p.w } else { 0.0 })
-                + (if e[2] { p.w } else { 0.0 })
-                + (if e[1] { p.h } else { 0.0 })
-                + (if e[3] { p.h } else { 0.0 })
-        })
-        .sum::<f64>()
-        / 1000.0;
+    let band: f64 = build.parts.iter().map(|p| p.band_length()).sum::<f64>() / 1000.0;
     let summary = Summary {
         cabinets: project.cabinets.len(),
         parts: build.parts.len(),
@@ -555,7 +544,13 @@ mod tests {
         let files = export::files(&p, &r);
         assert!(files.iter().any(|f| f.0.starts_with("nc/face2/t1-door1")));
         // toe kicks are 100 mm wide: tabs leave the cutter above the bottom
-        let (si, s) = r.nesting.sheets.iter().enumerate().find(|(_, s)| s.placements.iter().any(|pl| r.build.parts[pl.part].name == "Toe kick")).unwrap();
+        let (si, s) = r
+            .nesting
+            .sheets
+            .iter()
+            .enumerate()
+            .find(|(_, s)| s.placements.iter().any(|pl| r.build.parts[pl.part].name == "Toe kick"))
+            .unwrap();
         let g = export::gcode::sheet_program(&p, s, &r.build.parts, si);
         let th = p.material(&s.material).thickness;
         let tab_z = -(th + p.cnc.through) + p.cnc.through + p.cnc.tab_height;
@@ -630,9 +625,8 @@ mod tests {
             compute(&q)
         };
         let shaker = compute(&p);
-        let door_holes = |r: &Report| -> usize {
-            r.build.parts.iter().filter(|x| x.role == parts::Role::Front).map(|x| x.holes.len()).sum()
-        };
+        let door_holes =
+            |r: &Report| -> usize { r.build.parts.iter().filter(|x| x.role == parts::Role::Front).map(|x| x.holes.len()).sum() };
         let pieces = shaker.build.parts.iter().filter(|x| x.id.starts_with("w1-door1-")).count();
         assert_eq!(pieces, 5);
         assert_eq!(door_holes(&slab), door_holes(&shaker));
@@ -655,5 +649,156 @@ mod tests {
         let p2 = parse(&j).unwrap();
         let z = export::bundle(&p2, &compute(&p2));
         assert_eq!(&z[0..4], b"PK\x03\x04");
+    }
+
+    /// Back-right corner of the sample room: base run, L corner, return run,
+    /// and a wall L corner above.
+    fn l_kitchen() -> Project {
+        let mut p = sample_kitchen();
+        let base = Cabinet::default();
+        p.cabinets = vec![
+            Cabinet { id: "a1".into(), x: 1600.0, ..base.clone() },
+            Cabinet {
+                id: "lc".into(),
+                name: "L corner".into(),
+                x: 2200.0,
+                width: 1000.0,
+                width2: 1000.0,
+                corner: Corner::L,
+                ..base.clone()
+            },
+            Cabinet { id: "b1".into(), x: 3200.0, z: 1000.0, rotation: -90.0, ..base.clone() },
+            Cabinet {
+                id: "wl".into(),
+                name: "Wall L".into(),
+                kind: CabinetKind::Wall,
+                x: 2600.0,
+                elevation: 1450.0,
+                width: 600.0,
+                width2: 600.0,
+                height: 720.0,
+                depth: 320.0,
+                corner: Corner::L,
+                ..base
+            },
+        ];
+        p
+    }
+
+    fn inside_outline(o: &[[f64; 2]], x: f64, y: f64) -> bool {
+        let mut c = false;
+        for i in 0..o.len() {
+            let (a, b) = (o[i], o[(i + 1) % o.len()]);
+            if (a[1] > y) != (b[1] > y) && x < (b[0] - a[0]) * (y - a[1]) / (b[1] - a[1]) + a[0] {
+                c = !c;
+            }
+        }
+        c
+    }
+
+    #[test]
+    fn l_corner_builds_cleanly() {
+        for style in [DoorStyle::Slab, DoorStyle::Shaker] {
+            for plinth in [Plinth::Board, Plinth::Legs] {
+                let mut p = l_kitchen();
+                p.settings.plinth = plinth;
+                for c in p.cabinets.iter_mut() {
+                    c.door_style = style;
+                }
+                let r = compute(&p);
+                assert!(r.build.warnings.is_empty(), "{:?}", r.build.warnings);
+                let parts: Vec<_> = r.build.parts.iter().filter(|q| q.cabinet == "lc").collect();
+                let get = |k: &str| parts.iter().find(|q| q.id == format!("lc-{k}")).unwrap();
+                // L bottom: six corners, two banded front edges of 1000-18-560 and 1000-18-560
+                let bot = get("bottom");
+                assert_eq!(bot.outline.len(), 6);
+                assert_eq!(bot.band_segs.len(), 2);
+                assert!((bot.band_length() - 2.0 * (1000.0 - 18.0 - 560.0)).abs() < 0.5, "{}", bot.band_length());
+                assert_eq!(bot.more3d.len(), 1);
+                // every hole inside its outline; edge bores on an outline segment
+                for q in &parts {
+                    for h in &q.holes {
+                        if h.edge.is_none() {
+                            assert!(inside_outline(&q.outline, h.x, h.y), "{} {:?}", q.id, h);
+                        } else {
+                            let on = (0..q.outline.len()).any(|i| {
+                                let (a, b) = (q.outline[i], q.outline[(i + 1) % q.outline.len()]);
+                                let cross = (b[0] - a[0]) * (h.y - a[1]) - (b[1] - a[1]) * (h.x - a[0]);
+                                let within = h.x >= a[0].min(b[0]) - 1e-6
+                                    && h.x <= a[0].max(b[0]) + 1e-6
+                                    && h.y >= a[1].min(b[1]) - 1e-6
+                                    && h.y <= a[1].max(b[1]) + 1e-6;
+                                cross.abs() < 1e-6 && within
+                            });
+                            assert!(on, "{} edge bore off the outline {:?}", q.id, h);
+                        }
+                    }
+                }
+                // joints: side face bores meet panel edge bores (cabinet-local x/z, height)
+                let c = &p.cabinets[1];
+                let (t, bt) = (18.0, 6.0);
+                let (cd, xb, ze) = (c.depth - bt, c.width - c.depth, c.width2 - t);
+                let jd = 7.0;
+                let side_l = get("side-l");
+                let side_e = get("side-r");
+                let mut from_sides: Vec<(i64, i64, i64)> = side_l
+                    .holes
+                    .iter()
+                    .filter(|h| h.dia == jd)
+                    .map(|h| (0, (c.depth - h.x).round() as i64, (h.y + side_l.box3d.pos[1]).round() as i64))
+                    .chain(
+                        side_e
+                            .holes
+                            .iter()
+                            .filter(|h| h.dia == jd)
+                            .map(|h| (1, (xb + cd - h.x).round() as i64, (h.y + side_e.box3d.pos[1]).round() as i64)),
+                    )
+                    .collect();
+                let mut from_panels: Vec<(i64, i64, i64)> = parts
+                    .iter()
+                    .flat_map(|q| {
+                        let mid = (q.box3d.pos[1] + t / 2.0).round() as i64;
+                        q.holes.iter().filter_map(move |h| match h.edge {
+                            Some(3) => Some((0, (ze - h.y).round() as i64, mid)),
+                            Some(0) => Some((1, (h.x + t).round() as i64, mid)),
+                            _ => None,
+                        })
+                    })
+                    .collect();
+                from_sides.sort();
+                from_panels.sort();
+                assert_eq!(from_sides.len(), 12);
+                assert_eq!(from_sides, from_panels);
+                // bi-fold pair: the return leaf (or all its Shaker pieces) lies in the arm B front plane
+                let leaf_b: Vec<_> = parts.iter().filter(|q| q.id.starts_with("lc-door2")).collect();
+                assert!(!leaf_b.is_empty());
+                for q in leaf_b {
+                    assert!(q.box3d.pos[0] >= xb - 19.0 - 1e-6 && q.box3d.pos[0] + q.box3d.size[0] <= xb + 1e-6, "{} {:?}", q.id, q.box3d);
+                }
+                assert!(r.build.hardware.iter().any(|h| h.cabinet == "lc" && h.name.starts_with("Bi-fold")));
+                // worktops: one along the back (a1 + arm A), one down the side (arm B + b1)
+                let tops: Vec<_> = r.build.parts.iter().filter(|q| q.role == crate::parts::Role::Worktop).collect();
+                assert_eq!(tops.len(), 2, "{:?}", tops.iter().map(|q| &q.id).collect::<Vec<_>>());
+                let mut lens: Vec<i64> = tops.iter().map(|q| q.w.round() as i64).collect();
+                lens.sort();
+                let ov = p.settings.worktop_overhang;
+                assert_eq!(lens, vec![(440.0 + 600.0 - ov) as i64, 1600]);
+            }
+        }
+    }
+
+    #[test]
+    fn l_corner_blocks_both_walls_when_filling() {
+        let mut p = l_kitchen();
+        p.cabinets.retain(|c| c.id == "lc");
+        // the L sits in the corner of walls 0 and 1: neither fill may place a cabinet over it
+        for wi in [0, 1] {
+            let filled = room::fill_wall(&p, wi, room::Tier::Base).unwrap();
+            let mut q = p.clone();
+            q.cabinets.extend(filled.into_iter());
+            let mut w = vec![];
+            checks::check(&q, &mut w);
+            assert!(!w.iter().any(|m| m.contains("overlap")), "wall {wi}: {w:?}");
+        }
     }
 }

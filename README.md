@@ -60,7 +60,10 @@ Prices are in `project.json` under `pricing`; sample prices are placeholders.
 
 ```
 ./build.sh
+node web/test/smoke.mjs   # browser check of web/dist on both engines (needs Playwright + Chrome)
 ```
+
+Rust code is formatted with `cargo fmt` (settings in `rustfmt.toml`); CI checks it.
 
 ## CLI
 
@@ -134,6 +137,7 @@ Frameless / System 32, full-overlay fronts. Parts are drawn inside face up (hing
 - Finished back (islands): front-material panel over the back, covering end panels too.
 - End panels: finished side in front material outside the carcass, deep enough to cover the door edge, full height.
 - Blind corner: the blind side of the front is a fixed panel (blind width) that the return leg covers; one door fills the rest, hinged away from the blind side. Drawers are not built in blind corners.
+- L corner (Base or Wall, Corner = L shape): fills a room corner with two arms — the cabinet's width along one wall, the return width along the other, both at the cabinet's depth. L-shaped bottom, top and shelves (front edges banded; a support bracket at the back corner), a back on each wall, a left side and an end side, two toe kicks, and a bi-fold door pair: one leaf hinged on the left side, the other folding onto it with 170° hinges. Backs are applied; drawers and finished backs are not built. Worktops of both walls run over it. *L corner* / *Wall L* drop it into the first free inside corner of the room.
 - Routed Shaker: one-piece MDF front with the recess (frame width, routed depth) on the outside face; machine it as a second-face operation.
 - Shaker fronts: two full-height stiles, two rails with tenons (= groove depth), and a panel from the cabinet's panel material. Bores go to whichever piece holds them; fronts smaller than 2 × frame + 60 stay slab.
 - Nesting: MaxRects best-short-side-fit with kerf and trim; grained materials keep grain along the sheet length.

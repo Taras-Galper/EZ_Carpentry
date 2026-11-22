@@ -200,6 +200,20 @@ impl CabinetKind {
 }
 
 impl Cabinet {
+    pub fn is_l(&self) -> bool {
+        self.corner == Corner::L && self.kind.is_carcass()
+    }
+
+    /// Plan footprint as local rectangles [x0, z0, x1, z1].
+    pub fn rects(&self) -> Vec<[f64; 4]> {
+        let (w, d) = (self.width, self.depth);
+        if self.is_l() {
+            vec![[0.0, 0.0, w, d], [(w - d).max(0.0), 0.0, w, self.width2.max(d)]]
+        } else {
+            vec![[0.0, 0.0, w, d]]
+        }
+    }
+
     /// Sits on the floor under the worktop (joins worktop runs).
     pub fn under_worktop(&self) -> bool {
         match self.kind {
@@ -274,6 +288,16 @@ impl CutoutKind {
     }
 }
 
+/// Corner cabinet shape. `L`: a second arm runs from the back-right
+/// corner toward the front along local z, `width2` long overall.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum Corner {
+    #[default]
+    None,
+    L,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum BlindSide {
@@ -316,6 +340,9 @@ pub struct Cabinet {
     /// perpendicular run covers; the door fills the rest.
     pub blind_side: BlindSide,
     pub blind_width: f64,
+    /// L-shaped corner unit: second arm along local z, `width2` overall.
+    pub corner: Corner,
+    pub width2: f64,
     /// Finished end panels (front material) outside the carcass sides.
     pub end_left: bool,
     pub end_right: bool,
@@ -364,6 +391,8 @@ impl Default for Cabinet {
             door_style: DoorStyle::Slab,
             blind_side: BlindSide::None,
             blind_width: 600.0,
+            corner: Corner::None,
+            width2: 900.0,
             end_left: false,
             end_right: false,
             back_finished: false,
@@ -451,12 +480,7 @@ pub fn default_materials() -> Vec<Material> {
 /// L-shaped sample kitchen: tall + drawers + sink + blind corner along
 /// the back wall, a return leg along the right wall, wall units above.
 pub fn sample_kitchen() -> Project {
-    let base = |id: &str, name: &str, w: f64| Cabinet {
-        id: id.into(),
-        name: name.into(),
-        width: w,
-        ..Cabinet::default()
-    };
+    let base = |id: &str, name: &str, w: f64| Cabinet { id: id.into(), name: name.into(), width: w, ..Cabinet::default() };
     let wall = |id: &str, w: f64| Cabinet {
         id: id.into(),
         name: "Wall".into(),
@@ -499,12 +523,7 @@ pub fn sample_kitchen() -> Project {
         },
         Cabinet { kind: CabinetKind::Dishwasher, doors: 0, shelves: 0, ..base("d1", "Dishwasher", 600.0) },
         Cabinet { doors: 2, shelves: 0, cutout: CutoutKind::Sink, ..base("b2", "Sink base", 800.0) },
-        Cabinet {
-            blind_side: BlindSide::Right,
-            blind_width: top_depth + 20.0,
-            drawers: vec![],
-            ..base("b3", "Blind corner", 1150.0)
-        },
+        Cabinet { blind_side: BlindSide::Right, blind_width: top_depth + 20.0, drawers: vec![], ..base("b3", "Blind corner", 1150.0) },
     ];
     // 50 mm filler at the left wall so the pantry's left door can open fully.
     cabs.insert(
@@ -530,13 +549,7 @@ pub fn sample_kitchen() -> Project {
     let mut z = top_depth;
     for c in [
         Cabinet { drawers: vec![160.0], ..base("b4", "Base", 450.0) },
-        Cabinet {
-            doors: 0,
-            drawers: vec![180.0, 300.0, 290.0],
-            shelves: 0,
-            cutout: CutoutKind::Hob,
-            ..base("b5", "Hob base", 600.0)
-        },
+        Cabinet { doors: 0, drawers: vec![180.0, 300.0, 290.0], shelves: 0, cutout: CutoutKind::Hob, ..base("b5", "Hob base", 600.0) },
         Cabinet { drawers: vec![160.0], hinge_side: HingeSide::Right, end_right: true, ..base("b6", "Base", 450.0) },
     ] {
         cabs.push(Cabinet { x: room_w, z, rotation: -90.0, ..c });
@@ -581,14 +594,10 @@ impl Project {
     }
 
     pub fn material(&self, id: &str) -> Material {
-        self.materials
-            .iter()
-            .find(|m| m.id == id)
-            .cloned()
-            .unwrap_or_else(|| Material {
-                id: id.into(),
-                name: id.into(),
-                ..Material::default()
-            })
+        self.materials.iter().find(|m| m.id == id).cloned().unwrap_or_else(|| Material {
+            id: id.into(),
+            name: id.into(),
+            ..Material::default()
+        })
     }
 }

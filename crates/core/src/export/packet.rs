@@ -12,7 +12,11 @@ fn esc(s: &str) -> String {
 }
 
 fn n(v: f64) -> String {
-    if (v - v.round()).abs() < 0.05 { format!("{:.0}", v) } else { format!("{:.1}", v) }
+    if (v - v.round()).abs() < 0.05 {
+        format!("{:.0}", v)
+    } else {
+        format!("{:.1}", v)
+    }
 }
 
 /// Sheet number (1-based) for every part, None when oversize.
@@ -30,7 +34,11 @@ fn sheet_of(report: &Report) -> Vec<Option<usize>> {
 fn len_wid(project: &Project, p: &Part) -> (f64, f64) {
     let m = project.material(&p.material);
     let along_y = if m.grain { p.grain_y } else { p.h >= p.w };
-    if along_y { (p.h, p.w) } else { (p.w, p.h) }
+    if along_y {
+        (p.h, p.w)
+    } else {
+        (p.w, p.h)
+    }
 }
 
 fn edges_text(p: &Part) -> String {
@@ -49,14 +57,25 @@ fn mini(p: &Part, w: f64, h: f64) -> String {
     let segs = [(0.0, 0.0, p.w, 0.0), (p.w, 0.0, p.w, p.h), (0.0, p.h, p.w, p.h), (0.0, 0.0, 0.0, p.h)];
     for (i, (a, b, c, d)) in segs.iter().enumerate() {
         if p.edges[i] {
-            let _ = write!(o, r##"<line x1="{:.2}" y1="{:.2}" x2="{:.2}" y2="{:.2}" stroke="#000" stroke-width="1.1"/>"##, x(*a), y(*b), x(*c), y(*d));
+            let _ = write!(
+                o,
+                r##"<line x1="{:.2}" y1="{:.2}" x2="{:.2}" y2="{:.2}" stroke="#000" stroke-width="1.1"/>"##,
+                x(*a),
+                y(*b),
+                x(*c),
+                y(*d)
+            );
         }
     }
     for k in &p.pockets {
         let _ = write!(
             o,
             r##"<rect x="{:.2}" y="{:.2}" width="{:.2}" height="{:.2}" fill="none" stroke="#000" stroke-width="0.2" stroke-dasharray="{}"/>"##,
-            x(k.x), y(k.y + k.h), (k.w * s).max(0.3), (k.h * s).max(0.3), if k.face == 2 { "0.8 0.5" } else { "none" }
+            x(k.x),
+            y(k.y + k.h),
+            (k.w * s).max(0.3),
+            (k.h * s).max(0.3),
+            if k.face == 2 { "0.8 0.5" } else { "none" }
         );
     }
     for hle in p.holes.iter().filter(|h| h.edge.is_none()) {
@@ -96,10 +115,20 @@ pub fn packet_html(project: &Project, report: &Report, date: Option<&str>) -> St
     let sheet = sheet_of(report);
     let s = &report.summary;
     let mut o = String::new();
-    let _ = write!(o, r#"<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Shop packet — {}</title><style>{}</style></head><body>"#, esc(&project.name), PACKET_CSS);
+    let _ = write!(
+        o,
+        r#"<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Shop packet — {}</title><style>{}</style></head><body>"#,
+        esc(&project.name),
+        PACKET_CSS
+    );
 
     // ---------- cover ----------
-    let _ = write!(o, "<section><h1>{}</h1><div class=sub>Shop packet{}</div>", esc(&project.name), date.map(|d| format!(" · {}", esc(d))).unwrap_or_default());
+    let _ = write!(
+        o,
+        "<section><h1>{}</h1><div class=sub>Shop packet{}</div>",
+        esc(&project.name),
+        date.map(|d| format!(" · {}", esc(d))).unwrap_or_default()
+    );
     let sheets_n: usize = s.sheets.iter().map(|x| x.1).sum();
     let _ = write!(
         o,
@@ -125,7 +154,17 @@ pub fn packet_html(project: &Project, report: &Report, date: Option<&str>) -> St
         let shs: Vec<_> = report.nesting.sheets.iter().filter(|x| &x.material == mid).collect();
         let y = shs.iter().map(|x| x.yield_pct).sum::<f64>() / shs.len().max(1) as f64;
         let parts = b.parts.iter().filter(|p| &p.material == mid).count();
-        let _ = write!(o, "<tr><td>{}</td><td class=n>{}</td><td class=n>{}×{}</td><td class=n>{}</td><td class=n>{:.0}%</td><td class=n>{}</td></tr>", esc(&m.name), n(m.thickness), n(m.sheet_length), n(m.sheet_width), shs.len(), y, parts);
+        let _ = write!(
+            o,
+            "<tr><td>{}</td><td class=n>{}</td><td class=n>{}×{}</td><td class=n>{}</td><td class=n>{:.0}%</td><td class=n>{}</td></tr>",
+            esc(&m.name),
+            n(m.thickness),
+            n(m.sheet_length),
+            n(m.sheet_width),
+            shs.len(),
+            y,
+            parts
+        );
     }
     let _ = write!(o, "</table>");
     let st = &project.settings;
@@ -157,10 +196,25 @@ pub fn packet_html(project: &Project, report: &Report, date: Option<&str>) -> St
     let _ = write!(o, "<section><h2>Cabinets</h2><table><tr><th>Cabinet</th><th>Name</th><th>Description</th><th class=n>Parts</th></tr>");
     for c in &project.cabinets {
         let np = b.parts.iter().filter(|p| p.cabinet == c.id && p.role != Role::Worktop).count();
-        let _ = write!(o, "<tr><td><b>{}</b></td><td>{}</td><td>{}</td><td class=n>{}</td></tr>", esc(&c.id), esc(&c.name), esc(&quote::describe(project, report, &c.id)), np);
+        let _ = write!(
+            o,
+            "<tr><td><b>{}</b></td><td>{}</td><td>{}</td><td class=n>{}</td></tr>",
+            esc(&c.id),
+            esc(&c.name),
+            esc(&quote::describe(project, report, &c.id)),
+            np
+        );
     }
     for p in b.parts.iter().filter(|p| p.role == Role::Worktop) {
-        let _ = write!(o, "<tr><td><b>{}</b></td><td>Worktop</td><td>{} × {} × {}, {} cut-out(s)</td><td class=n>1</td></tr>", esc(&p.id), n(p.w), n(p.h), n(p.thickness), p.cutouts.len());
+        let _ = write!(
+            o,
+            "<tr><td><b>{}</b></td><td>Worktop</td><td>{} × {} × {}, {} cut-out(s)</td><td class=n>1</td></tr>",
+            esc(&p.id),
+            n(p.w),
+            n(p.h),
+            n(p.thickness),
+            p.cutouts.len()
+        );
     }
     let _ = write!(o, "</table></section>");
 
@@ -197,7 +251,8 @@ pub fn packet_html(project: &Project, report: &Report, date: Option<&str>) -> St
                 }
                 let mut pos: Vec<f64> = hs.iter().map(|h| if e == 1 || e == 3 { h.y } else { h.x }).collect();
                 pos.sort_by(|a, b| a.total_cmp(b));
-                let _ = write!(
+                let _ =
+                    write!(
                     o,
                     "<tr><td class=c><span class=box></span></td><td><b>{}</b></td><td>{}</td><td>{}</td><td>Ø{} × {}</td><td>{}</td></tr>",
                     esc(&p.id), esc(&p.name), label, n(hs[0].dia), n(hs[0].depth),
@@ -211,12 +266,27 @@ pub fn packet_html(project: &Project, report: &Report, date: Option<&str>) -> St
     // ---------- sheets ----------
     for (i, sh) in report.nesting.sheets.iter().enumerate() {
         let m = project.material(&sh.material);
-        let _ = write!(o, "<section class=land><h2>Sheet {} of {} — {} · {} parts · {:.0}%</h2><div class=sheet>{}</div></section>", i + 1, report.nesting.sheets.len(), esc(&m.name), sh.placements.len(), sh.yield_pct, sheet_svg(project, sh, &b.parts));
+        let _ = write!(
+            o,
+            "<section class=land><h2>Sheet {} of {} — {} · {} parts · {:.0}%</h2><div class=sheet>{}</div></section>",
+            i + 1,
+            report.nesting.sheets.len(),
+            esc(&m.name),
+            sh.placements.len(),
+            sh.yield_pct,
+            sheet_svg(project, sh, &b.parts)
+        );
     }
 
     // ---------- drawings ----------
     for c in project.cabinets.iter().filter(|c| c.kind.is_carcass()) {
-        let _ = write!(o, "<section><h2>{} · {}</h2><div class=drawing>{}</div>", esc(&c.id), esc(&c.name), drawing::cabinet_svg(project, b, c));
+        let _ = write!(
+            o,
+            "<section><h2>{} · {}</h2><div class=drawing>{}</div>",
+            esc(&c.id),
+            esc(&c.name),
+            drawing::cabinet_svg(project, b, c)
+        );
         let hw: Vec<_> = b.hardware.iter().filter(|h| h.cabinet == c.id).collect();
         if !hw.is_empty() {
             let _ = write!(o, "<h3>Hardware</h3><table>");
@@ -254,7 +324,12 @@ pub fn labels_html(project: &Project, report: &Report) -> String {
     let mut order: Vec<usize> = (0..b.parts.len()).collect();
     order.sort_by_key(|&i| (sheet[i].unwrap_or(usize::MAX), i));
     let mut o = String::new();
-    let _ = write!(o, r#"<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Labels — {}</title><style>{}</style></head><body>"#, esc(&project.name), LABEL_CSS);
+    let _ = write!(
+        o,
+        r#"<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Labels — {}</title><style>{}</style></head><body>"#,
+        esc(&project.name),
+        LABEL_CSS
+    );
     for chunk in order.chunks(24) {
         o.push_str("<div class=page>");
         for &i in chunk {
@@ -268,9 +343,12 @@ pub fn labels_html(project: &Project, report: &Report) -> String {
                 esc(&p.id),
                 sheet[i].map(|s| s.to_string()).unwrap_or_else(|| "–".into()),
                 mini(p, 18.0, 16.0),
-                n(l), n(w), n(p.thickness),
+                n(l),
+                n(w),
+                n(p.thickness),
                 esc(&m.name),
-                esc(&cname), esc(&p.name),
+                esc(&cname),
+                esc(&p.name),
                 [
                     (!edges_text(p).is_empty()).then(|| format!("Edges {}", edges_text(p))),
                     (!p.holes.is_empty()).then(|| format!("{} bores", p.holes.len())),

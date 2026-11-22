@@ -236,11 +236,7 @@ pub fn room_from_dxf(text: &str) -> Result<(Room, String), String> {
     let outer = &loops[0];
     let a0 = area(outer).abs();
     // Walls drawn with both faces: take the inner face.
-    let pick = loops[1..]
-        .iter()
-        .find(|l| area(l).abs() > 0.5 * a0 && l.iter().all(|&p| inside(outer, p)))
-        .unwrap_or(outer)
-        .clone();
+    let pick = loops[1..].iter().find(|l| area(l).abs() > 0.5 * a0 && l.iter().all(|&p| inside(outer, p))).unwrap_or(outer).clone();
     let minx = pick.iter().map(|p| p.0).fold(f64::MAX, f64::min);
     let minz = pick.iter().map(|p| p.1).fold(f64::MAX, f64::min);
     let walls: Vec<[f64; 2]> = pick.iter().map(|p| [((p.0 - minx) * 10.0).round() / 10.0, ((p.1 - minz) * 10.0).round() / 10.0]).collect();

@@ -214,7 +214,9 @@ const CAB_PRESETS = {
   Filler: () => ({ kind: "filler", name: "Filler", width: 50, height: 870, depth: 560, toe_kick_height: 100, toe_kick_depth: 60, doors: 0, drawers: [], shelves: 0 }),
   Wardrobe: () => ({ kind: "tall", name: "Wardrobe", width: 1000, height: 2300, depth: 600, toe_kick_height: 100, toe_kick_depth: 60, doors: 2, drawers: [], shelves: 0, hanging_rail: true }),
   Open: () => ({ kind: "wall", name: "Open shelf", width: 600, height: 720, depth: 320, elevation: 1450, toe_kick_height: 0, doors: 0, drawers: [], shelves: 2 }),
-  Corner: () => ({ kind: "base", name: "Blind corner", width: 1200, height: 870, depth: 560, toe_kick_height: 100, toe_kick_depth: 60, doors: 1, drawers: [], shelves: 1, blind_side: "right", blind_width: 600 }),
+  "L corner": () => ({ kind: "base", name: "L corner", width: 1000, width2: 1000, height: 870, depth: 560, toe_kick_height: 100, toe_kick_depth: 60, doors: 1, drawers: [], shelves: 1, corner: "l" }),
+  "Wall L": () => ({ kind: "wall", name: "Wall L corner", width: 600, width2: 600, height: 720, depth: 320, elevation: 1450, toe_kick_height: 0, doors: 1, drawers: [], shelves: 2, corner: "l" }),
+  Blind: () => ({ kind: "base", name: "Blind corner", width: 1200, height: 870, depth: 560, toe_kick_height: 100, toe_kick_depth: 60, doors: 1, drawers: [], shelves: 1, blind_side: "right", blind_width: 600 }),
   Tall: () => ({ kind: "tall", name: "Tall", width: 600, height: 2200, depth: 580, toe_kick_height: 100, toe_kick_depth: 60, doors: 2, drawers: [], shelves: 5 }),
 };
 function addCabinet(type, preset = null) {
@@ -223,11 +225,18 @@ function addCabinet(type, preset = null) {
   // Append to the back-wall run after anything at the same height (a tall
   // cabinet blocks both base and wall units); match the project's front style.
   const elev = p.elevation || 0, top = elev + p.height;
-  const same = project.cabinets.filter((c) => !c.rotation && c.elevation < top && c.elevation + c.height > elev);
-  const x = same.reduce((m, c) => Math.max(m, c.x + c.width), 0);
+  const same = project.cabinets.filter((c) => c.elevation < top && c.elevation + c.height > elev);
+  const run = same.filter((c) => !c.rotation && Math.abs(c.z) < 1);
+  let x = run.reduce((m, c) => Math.max(m, c.x + c.width), 0), z = 0, rotation = 0;
+  // Run already reaches the right-hand wall: start on its left instead.
+  const right = project.room.walls.length ? Math.max(...project.room.walls.map((q) => q[0])) : Infinity;
+  if (x + p.width > right + 1 && run.length) x = Math.max(0, Math.min(...run.map((c) => c.x)) - p.width);
+  // An L corner goes into the first free right-angle room corner.
+  const spot = isL(p) ? freeCorner(p, same) : null;
+  if (spot) [x, z, rotation] = spot;
   const style = p.door_style || project.cabinets.find((c) => c.id === selected)?.door_style || project.cabinets[0]?.door_style || "slab";
   const c = {
-    id: uid(prefix), x, z: 0, elevation: 0, rotation: 0, hinge_side: "left", handles: true, door_style: style,
+    id: uid(prefix), x, z, elevation: 0, rotation, hinge_side: "left", handles: true, door_style: style,
     carcass_material: "carcass", back_material: "back", front_material: "front", drawer_material: "drawer",
     toe_kick_depth: 60, ...p,
   };
@@ -238,6 +247,23 @@ function addCabinet(type, preset = null) {
   recompute();
 }
 
+// Room corner (end of wall i, start of wall i + 1, at 90°) where an L
+// cabinet of preset `p` overlaps none of `others`: [x, z, rotation] or null.
+function freeCorner(p, others) {
+  const ws = roomWalls(project.room);
+  for (let i = 0; i < ws.length; i++) {
+    const a = ws[i], b = ws[(i + 1) % ws.length];
+    if (b.dir[0] * a.normal[0] + b.dir[1] * a.normal[1] < 0.98) continue; // inside right-angle corner only
+    if (a.len < p.width || b.len < p.width2) continue;
+    const [ox, oz] = wallPoint(a, a.len - p.width, 0);
+    const c = { ...p, x: ox, z: oz, rotation: a.rotation };
+    const f = footprint(c);
+    const hit = others.some((o) => { const g = footprint(o); return g.x0 < f.x1 - 2 && g.x1 > f.x0 + 2 && g.z0 < f.z1 - 2 && g.z1 > f.z0 + 2; });
+    if (!hit) return [Math.round(ox * 10) / 10, Math.round(oz * 10) / 10, a.rotation];
+  }
+  return null;
+}
+
 // ---------- left: add palette ----------
 // Small front-elevation icons, 28 x 34 viewBox.
 const ICONS = {
@@ -245,7 +271,9 @@ const ICONS = {
   Drawers: '<rect x="3" y="8" width="22" height="22"/><line x1="3" y1="14" x2="25" y2="14"/><line x1="3" y1="22" x2="25" y2="22"/><rect x="3" y="30" width="22" height="3" class="k"/>',
   Sink: '<rect x="1" y="6" width="26" height="2.5" class="k"/><rect x="3" y="8.5" width="22" height="21.5"/><line x1="14" y1="8.5" x2="14" y2="30"/><path d="M10 6 v-3 h4"/><rect x="3" y="30" width="22" height="3" class="k"/>',
   Hob: '<rect x="1" y="6" width="26" height="2.5" class="k"/><rect x="3" y="8.5" width="22" height="21.5"/><line x1="3" y1="15" x2="25" y2="15"/><line x1="3" y1="22" x2="25" y2="22"/><line x1="7" y1="4" x2="21" y2="4" class="t"/><rect x="3" y="30" width="22" height="3" class="k"/>',
-  Corner: '<rect x="2" y="8" width="24" height="22"/><rect x="15" y="8" width="11" height="22" class="k"/><line x1="12" y1="12" x2="12" y2="17"/><rect x="2" y="30" width="24" height="3" class="k"/>',
+"L corner": '<path d="M2 8 h24 v22 h-9 v-13 h-15 z"/><line x1="17" y1="17" x2="17" y2="30" class="t"/>',
+  "Wall L": '<path d="M2 3 h24 v18 h-9 v-10 h-15 z"/><line x1="0" y1="1.5" x2="28" y2="1.5" class="t"/>',
+  Blind: '<rect x="2" y="8" width="24" height="22"/><rect x="15" y="8" width="11" height="22" class="k"/><line x1="12" y1="12" x2="12" y2="17"/><rect x="2" y="30" width="24" height="3" class="k"/>',
   Wall: '<rect x="3" y="3" width="22" height="16"/><line x1="20" y1="13" x2="20" y2="17"/><line x1="0" y1="2" x2="28" y2="2" class="t"/>',
   Tall: '<rect x="7" y="1" width="14" height="30"/><line x1="7" y1="13" x2="21" y2="13"/><rect x="7" y="31" width="14" height="2" class="k"/>',
   Dishwasher: '<rect x="3" y="8" width="22" height="22"/><line x1="10" y1="11.5" x2="18" y2="11.5" class="t"/><rect x="3" y="30" width="22" height="3" class="k"/>',
@@ -290,7 +318,7 @@ function renderList() {
   const ul = $("#list"); ul.replaceChildren();
   for (const c of project.cabinets) {
     ul.append(h("li", { class: c.id === selected ? "sel" : "", onclick: () => { selected = c.id; selWall = null; closeSheetOnPhone(); recompute(); } },
-      h("b", {}, c.id), h("span", {}, c.name), h("em", {}, `${c.width}×${c.height}×${c.depth}`)));
+      h("b", {}, c.id), h("span", {}, c.name), h("em", {}, `${c.width}${isL(c) ? "/" + c.width2 : ""}×${c.height}×${c.depth}`)));
   }
 }
 
@@ -379,7 +407,8 @@ function renderProps() {
     return;
   }
   const carcass = ["base", "wall", "tall"].includes(c.kind);
-  const blind = c.blind_side && c.blind_side !== "none";
+  const lc = isL(c);
+  const blind = !lc && c.blind_side && c.blind_side !== "none";
   const cut = c.cutout && c.cutout !== "none";
   put(
     h("div", { class: "row" },
@@ -403,19 +432,20 @@ function renderProps() {
     carcass ? [
       h("h3", {}, "Interior"),
       h("div", { class: "grid2" },
-        field("Doors", c, "doors", "select", [[0, "None"], [1, "1"], [2, "2"]]),
-        field("Hinge", c, "hinge_side", "select", [["left", "Left"], ["right", "Right"]]),
-        field("Front style", c, "door_style", "select", [["slab", "Slab"], ["shaker", "Shaker"], ["shaker_routed", "Shaker routed"]]),
-        field("Blind corner", c, "blind_side", "select", [["none", "None"], ["left", "Left"], ["right", "Right"]]),
+        field("Corner", c, "corner", "select", [["none", "None"], ["l", "L shape"]]),
+        lc ? field("Return width", c, "width2") : field("Blind corner", c, "blind_side", "select", [["none", "None"], ["left", "Left"], ["right", "Right"]]),
         blind ? [field("Blind width", c, "blind_width"), h("span")] : null,
+        lc ? field("Doors", c, "doors", "select", [[0, "None"], [1, "Bi-fold"]]) : field("Doors", c, "doors", "select", [[0, "None"], [1, "1"], [2, "2"]]),
+        lc ? null : field("Hinge", c, "hinge_side", "select", [["left", "Left"], ["right", "Right"]]),
+        field("Front style", c, "door_style", "select", [["slab", "Slab"], ["shaker", "Shaker"], ["shaker_routed", "Shaker routed"]]),
         field("Shelves", c, "shelves", "int"),
         field("Handles", c, "handles", "check"),
         field("End panel L", c, "end_left", "check"),
         field("End panel R", c, "end_right", "check"),
-        field("Finished back", c, "back_finished", "check"),
+        lc ? null : field("Finished back", c, "back_finished", "check"),
         c.kind === "tall" ? field("Hanging rail", c, "hanging_rail", "check") : null,
         c.kind === "tall" && c.hanging_rail ? field("Hat shelf gap", c, "hat_space") : null),
-      field("Drawers (front heights, top first)", c, "drawers", "list"),
+      lc ? null : field("Drawers (front heights, top first)", c, "drawers", "list"),
     ] : null,
     c.kind === "dishwasher" ? h("div", { class: "grid2" },
       field("Front style", c, "door_style", "select", [["slab", "Slab"], ["shaker", "Shaker"], ["shaker_routed", "Shaker routed"]]),
@@ -670,6 +700,12 @@ function partSvg(p, size = 260) {
     const l = document.createElementNS(ns, "line");
     l.setAttribute("x1", X(g[0])); l.setAttribute("y1", Y(g[1])); l.setAttribute("x2", X(g[2])); l.setAttribute("y2", Y(g[3]));
     l.setAttribute("stroke", "#e0662a"); l.setAttribute("stroke-width", 3); svg.append(l); });
+  for (const i of p.band_segs || []) {
+    const [a, b] = [p.outline[i], p.outline[(i + 1) % p.outline.length]];
+    const l = document.createElementNS(ns, "line");
+    l.setAttribute("x1", X(a[0])); l.setAttribute("y1", Y(a[1])); l.setAttribute("x2", X(b[0])); l.setAttribute("y2", Y(b[1]));
+    l.setAttribute("stroke", "#e0662a"); l.setAttribute("stroke-width", 3); svg.append(l);
+  }
   for (const c of p.cutouts || []) {
     const r = document.createElementNS(ns, "rect");
     r.setAttribute("x", X(c.x)); r.setAttribute("y", Y(c.y + c.h));
@@ -1029,8 +1065,10 @@ function toWorld(c, x, z, ox = c.x, oz = c.z, rot = c.rotation) {
   const r = THREE.MathUtils.degToRad(rot), sn = Math.sin(r), cs = Math.cos(r);
   return [ox + x * cs + z * sn, oz - x * sn + z * cs];
 }
+const isL = (c) => c.corner === "l" && ["base", "wall", "tall"].includes(c.kind);
 function footprint(c, ox = c.x, oz = c.z, rot = c.rotation) {
-  const pts = [[0, 0], [c.width, 0], [0, c.depth], [c.width, c.depth]].map(([x, z]) => toWorld(c, x, z, ox, oz, rot));
+  const d2 = isL(c) ? Math.max(c.width2, c.depth) : c.depth;
+  const pts = [[0, 0], [c.width, 0], [0, d2], [c.width, d2]].map(([x, z]) => toWorld(c, x, z, ox, oz, rot));
   const xs = pts.map((p) => p[0]), zs = pts.map((p) => p[1]);
   return { x0: Math.min(...xs), x1: Math.max(...xs), z0: Math.min(...zs), z1: Math.max(...zs) };
 }
@@ -1143,16 +1181,23 @@ function updateScene() {
     if (!showFronts && p.role === "front") continue;
     const g = groups.get(p.cabinet); if (!g) continue;
     const [x, y, z] = p.box3d.pos, [sx, sy, sz] = p.box3d.size;
-    const m = new THREE.Mesh(box, mat(matOf(p.material).color, p.cabinet === selected));
-    m.scale.set(sx, sy, sz); m.position.set(x + sx / 2, y + sy / 2, z + sz / 2);
-    m.userData.cab = p.cabinet;
-    const l = new THREE.LineSegments(edges, edgeMat); l.scale.copy(m.scale); l.position.copy(m.position);
-    g.add(m, l);
+    for (const b of [p.box3d, ...(p.more3d || [])]) {
+      const m = new THREE.Mesh(box, mat(matOf(p.material).color, p.cabinet === selected));
+      m.scale.set(...b.size); m.position.set(b.pos[0] + b.size[0] / 2, b.pos[1] + b.size[1] / 2, b.pos[2] + b.size[2] / 2);
+      m.userData.cab = p.cabinet;
+      const l = new THREE.LineSegments(edges, edgeMat); l.scale.copy(m.scale); l.position.copy(m.position);
+      g.add(m, l);
+    }
     // Routed Shaker recess on the outside face (front parts are drawn inside face up, so x mirrors)
     if (p.role === "front") for (const k of (p.pockets || []).filter((k) => k.face === 2)) {
       const rc = new THREE.Mesh(box, recessMat);
-      rc.scale.set(k.w, k.h, 1);
-      rc.position.set(x + sx - (k.x + k.w / 2), y + k.y + k.h / 2, z + sz + 0.6);
+      if (sx < sz) { // L corner return leaf: faces -x, drawing x runs back along z
+        rc.scale.set(1, k.h, k.w);
+        rc.position.set(x - 0.6, y + k.y + k.h / 2, z + sz - (k.x + k.w / 2));
+      } else {
+        rc.scale.set(k.w, k.h, 1);
+        rc.position.set(x + sx - (k.x + k.w / 2), y + k.y + k.h / 2, z + sz + 0.6);
+      }
       const rl = new THREE.LineSegments(edges, edgeMat); rl.scale.copy(rc.scale); rl.position.copy(rc.position);
       g.add(rc, rl);
     }

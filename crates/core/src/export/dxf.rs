@@ -86,11 +86,8 @@ impl Dxf {
     }
     fn line(&mut self, layer: &str, a: (f64, f64), b: (f64, f64)) {
         self.layer(layer);
-        let _ = write!(
-            self.body,
-            "0\nLINE\n8\n{layer}\n10\n{:.3}\n20\n{:.3}\n30\n0.0\n11\n{:.3}\n21\n{:.3}\n31\n0.0\n",
-            a.0, a.1, b.0, b.1
-        );
+        let _ =
+            write!(self.body, "0\nLINE\n8\n{layer}\n10\n{:.3}\n20\n{:.3}\n30\n0.0\n11\n{:.3}\n21\n{:.3}\n31\n0.0\n", a.0, a.1, b.0, b.1);
     }
     fn circle(&mut self, layer: &str, x: f64, y: f64, r: f64) {
         self.layer(layer);
@@ -98,10 +95,7 @@ impl Dxf {
     }
     fn text(&mut self, x: f64, y: f64, height: f64, rot: f64, s: &str) {
         let s: String = s.chars().map(|c| if c.is_ascii() && c != '\n' { c } else { '_' }).collect();
-        let _ = write!(
-            self.body,
-            "0\nTEXT\n8\nLABEL\n10\n{x:.3}\n20\n{y:.3}\n30\n0.0\n40\n{height:.3}\n50\n{rot:.1}\n1\n{s}\n"
-        );
+        let _ = write!(self.body, "0\nTEXT\n8\nLABEL\n10\n{x:.3}\n20\n{y:.3}\n30\n0.0\n40\n{height:.3}\n50\n{rot:.1}\n1\n{s}\n");
     }
     fn finish(self, ext: (f64, f64)) -> String {
         let mut o = String::new();

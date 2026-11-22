@@ -56,16 +56,10 @@ struct R {
 
 impl R {
     fn contains(&self, o: &R) -> bool {
-        o.x >= self.x - 1e-6
-            && o.y >= self.y - 1e-6
-            && o.x + o.w <= self.x + self.w + 1e-6
-            && o.y + o.h <= self.y + self.h + 1e-6
+        o.x >= self.x - 1e-6 && o.y >= self.y - 1e-6 && o.x + o.w <= self.x + self.w + 1e-6 && o.y + o.h <= self.y + self.h + 1e-6
     }
     fn intersects(&self, o: &R) -> bool {
-        o.x < self.x + self.w - 1e-6
-            && o.x + o.w > self.x + 1e-6
-            && o.y < self.y + self.h - 1e-6
-            && o.y + o.h > self.y + 1e-6
+        o.x < self.x + self.w - 1e-6 && o.x + o.w > self.x + 1e-6 && o.y < self.y + self.h - 1e-6 && o.y + o.h > self.y + 1e-6
     }
 }
 
@@ -130,11 +124,7 @@ impl Bin {
                 }
             }
         }
-        self.free = next
-            .into_iter()
-            .zip(keep)
-            .filter_map(|(r, k)| k.then_some(r))
-            .collect();
+        self.free = next.into_iter().zip(keep).filter_map(|(r, k)| k.then_some(r)).collect();
     }
 }
 
@@ -171,11 +161,7 @@ pub fn nest(project: &Project, parts: &[Part]) -> Nesting {
         let mut bins: Vec<Bin> = vec![];
         for (i, w, h) in items {
             // With grain, the part's grain must run along sheet length (x).
-            let (can_unrot, can_rot) = if m.grain {
-                (!parts[i].grain_y, parts[i].grain_y)
-            } else {
-                (true, true)
-            };
+            let (can_unrot, can_rot) = if m.grain { (!parts[i].grain_y, parts[i].grain_y) } else { (true, true) };
             let (w2, h2) = (w + k, h + k);
             let mut done = false;
             for b in bins.iter_mut() {

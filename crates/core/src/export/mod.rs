@@ -1,5 +1,5 @@
-pub mod drawing;
 pub mod code128;
+pub mod drawing;
 pub mod dxf;
 pub mod gcode;
 pub mod packet;
@@ -31,11 +31,8 @@ pub fn cutlist_csv(project: &Project, build: &Build) -> String {
         let along_y = if m.grain { p.grain_y } else { ch >= cw };
         let (len, wid) = if along_y { (ch, cw) } else { (cw, ch) };
         // edges: [bottom, right, top, left]; length edges are the ones parallel to length.
-        let (l1, l2, w1, w2) = if along_y {
-            (p.edges[3], p.edges[1], p.edges[0], p.edges[2])
-        } else {
-            (p.edges[0], p.edges[2], p.edges[3], p.edges[1])
-        };
+        let (l1, l2, w1, w2) =
+            if along_y { (p.edges[3], p.edges[1], p.edges[0], p.edges[2]) } else { (p.edges[0], p.edges[2], p.edges[3], p.edges[1]) };
         let x = |b: bool| if b { "X".to_string() } else { String::new() };
         let key = vec![
             p.cabinet.clone(),
@@ -107,7 +104,11 @@ pub fn sheet_svg(project: &Project, sheet: &Sheet, parts: &[Part]) -> String {
     let _ = write!(
         o,
         r##"<text x="0" y="-20" font-size="36">{} — {}×{}×{} — {}%</text>"##,
-        esc(&m.name), sheet.length, sheet.width, m.thickness, sheet.yield_pct
+        esc(&m.name),
+        sheet.length,
+        sheet.width,
+        m.thickness,
+        sheet.yield_pct
     );
     // Flip y so the SVG matches the DXF orientation.
     let _ = write!(o, r##"<g transform="translate(0,{}) scale(1,-1)">"##, sheet.width);
@@ -141,11 +142,7 @@ pub fn sheet_svg(project: &Project, sheet: &Sheet, parts: &[Part]) -> String {
                     format!("{:.1},{:.1}", a, b)
                 })
                 .collect();
-            let _ = write!(
-                o,
-                r##"<polygon points="{}" fill="#f4f1ea" stroke="#222" stroke-width="2"/>"##,
-                pts.join(" ")
-            );
+            let _ = write!(o, r##"<polygon points="{}" fill="#f4f1ea" stroke="#222" stroke-width="2"/>"##, pts.join(" "));
         }
         for k in &p.pockets {
             let pts: Vec<String> = k
@@ -170,18 +167,18 @@ pub fn sheet_svg(project: &Project, sheet: &Sheet, parts: &[Part]) -> String {
                 let (dx, dy) = dxf::edge_inward(e);
                 let (a, b) = pl.map(p.w, h.x, h.y);
                 let (c, d) = pl.map(p.w, h.x + dx * h.depth, h.y + dy * h.depth);
-                let _ = write!(
-                    o,
-                    r##"<line x1="{a:.1}" y1="{b:.1}" x2="{c:.1}" y2="{d:.1}" stroke="#d07a00" stroke-width="{:.1}"/>"##,
-                    h.dia
-                );
+                let _ =
+                    write!(o, r##"<line x1="{a:.1}" y1="{b:.1}" x2="{c:.1}" y2="{d:.1}" stroke="#d07a00" stroke-width="{:.1}"/>"##, h.dia);
                 continue;
             }
             let (x, y) = pl.map(p.w, h.x, h.y);
             let _ = write!(
                 o,
                 r##"<circle cx="{:.1}" cy="{:.1}" r="{:.1}" fill="none" stroke="{}" stroke-width="1.5"/>"##,
-                x, y, h.dia / 2.0, if h.depth <= 0.0 { "#c00" } else { "#06c" }
+                x,
+                y,
+                h.dia / 2.0,
+                if h.depth <= 0.0 { "#c00" } else { "#06c" }
             );
         }
     }
@@ -194,7 +191,16 @@ pub fn sheet_svg(project: &Project, sheet: &Sheet, parts: &[Part]) -> String {
         let _ = write!(
             o,
             r##"<text x="{:.1}" y="{:.1}" font-size="{:.0}" text-anchor="middle">{} {}</text><text x="{:.1}" y="{:.1}" font-size="{:.0}" text-anchor="middle" fill="#555">{:.0}×{:.0}</text>"##,
-            cx, cy - fs * 0.2, fs, esc(&p.cabinet), esc(&p.name), cx, cy + fs, fs * 0.8, p.w, p.h
+            cx,
+            cy - fs * 0.2,
+            fs,
+            esc(&p.cabinet),
+            esc(&p.name),
+            cx,
+            cy + fs,
+            fs * 0.8,
+            p.w,
+            p.h
         );
     }
     o.push_str("</svg>");
@@ -227,8 +233,21 @@ pub fn labels_csv(project: &Project, report: &Report) -> String {
         let _ = writeln!(
             o,
             "{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
-            csv_cell(&p.id), csv_cell(&p.cabinet), csv_cell(&cname), csv_cell(&p.name), csv_cell(&m.name),
-            m.thickness, p.w, p.h, edges, p.holes.len(), p.cutouts.len(), sheet, sx, sy, rot
+            csv_cell(&p.id),
+            csv_cell(&p.cabinet),
+            csv_cell(&cname),
+            csv_cell(&p.name),
+            csv_cell(&m.name),
+            m.thickness,
+            p.w,
+            p.h,
+            edges,
+            p.holes.len(),
+            p.cutouts.len(),
+            sheet,
+            sx,
+            sy,
+            rot
         );
     }
     o
@@ -239,23 +258,27 @@ pub fn obj(project: &Project, build: &Build) -> String {
     let mut o = String::from("# Casework export, millimetres, Y up\n");
     let mut vi = 1;
     for p in &build.parts {
-        let Some(c) = project.cabinets.iter().find(|c| c.id == p.cabinet) else { continue };
+        let Some(c) = project.cabinets.iter().find(|c| c.id == p.cabinet) else {
+            continue;
+        };
         let (sin, cos) = c.rotation.to_radians().sin_cos();
         let _ = writeln!(o, "o {}_{}", p.cabinet, p.name.replace(' ', "_"));
-        let [x0, y0, z0] = p.box3d.pos;
-        let [sx, sy, sz] = p.box3d.size;
-        for i in 0..8 {
-            let x = x0 + if i & 1 != 0 { sx } else { 0.0 };
-            let y = y0 + if i & 2 != 0 { sy } else { 0.0 };
-            let z = z0 + if i & 4 != 0 { sz } else { 0.0 };
-            let wx = c.x + x * cos + z * sin;
-            let wz = c.z - x * sin + z * cos;
-            let _ = writeln!(o, "v {:.2} {:.2} {:.2}", wx, y + c.elevation, wz);
+        for b in std::iter::once(&p.box3d).chain(p.more3d.iter()) {
+            let [x0, y0, z0] = b.pos;
+            let [sx, sy, sz] = b.size;
+            for i in 0..8 {
+                let x = x0 + if i & 1 != 0 { sx } else { 0.0 };
+                let y = y0 + if i & 2 != 0 { sy } else { 0.0 };
+                let z = z0 + if i & 4 != 0 { sz } else { 0.0 };
+                let wx = c.x + x * cos + z * sin;
+                let wz = c.z - x * sin + z * cos;
+                let _ = writeln!(o, "v {:.2} {:.2} {:.2}", wx, y + c.elevation, wz);
+            }
+            for f in [[0, 2, 3, 1], [4, 5, 7, 6], [0, 1, 5, 4], [2, 6, 7, 3], [0, 4, 6, 2], [1, 3, 7, 5]] {
+                let _ = writeln!(o, "f {} {} {} {}", vi + f[0], vi + f[1], vi + f[2], vi + f[3]);
+            }
+            vi += 8;
         }
-        for f in [[0, 2, 3, 1], [4, 5, 7, 6], [0, 1, 5, 4], [2, 6, 7, 3], [0, 4, 6, 2], [1, 3, 7, 5]] {
-            let _ = writeln!(o, "f {} {} {} {}", vi + f[0], vi + f[1], vi + f[2], vi + f[3]);
-        }
-        vi += 8;
     }
     o
 }
@@ -289,10 +312,7 @@ pub fn files_dated(project: &Project, report: &Report, date: Option<&str>) -> Ve
         ("shop_packet.html".into(), packet::packet_html(project, report, date).into_bytes()),
         ("labels.html".into(), packet::labels_html(project, report).into_bytes()),
         ("quote.csv".into(), quote::quote_csv(&quote::quote(project, report)).into_bytes()),
-        (
-            "quote.html".into(),
-            quote::quote_html(project, &quote::quote(project, report), project.pricing.vat_pct).into_bytes(),
-        ),
+        ("quote.html".into(), quote::quote_html(project, &quote::quote(project, report), project.pricing.vat_pct).into_bytes()),
         ("model.obj".into(), obj(project, b).into_bytes()),
     ];
     for p in &b.parts {

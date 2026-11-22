@@ -5,10 +5,11 @@ use crate::model::*;
 use crate::parts::to_world;
 use crate::room::Room;
 
-/// Plan footprint corners (counter-clockwise or clockwise, consistent).
-fn corners(c: &Cabinet) -> [(f64, f64); 4] {
+/// Plan footprint as world quads, one per footprint rectangle
+/// (corners in a consistent winding).
+fn corners(c: &Cabinet) -> Vec<[(f64, f64); 4]> {
     let p = |x: f64, z: f64| to_world(c.x, c.z, c.rotation, x, z);
-    [p(0.0, 0.0), p(c.width, 0.0), p(c.width, c.depth), p(0.0, c.depth)]
+    c.rects().iter().map(|r| [p(r[0], r[1]), p(r[2], r[1]), p(r[2], r[3]), p(r[0], r[3])]).collect()
 }
 
 /// Overlap depth of two convex quads along their separating axes (SAT);
@@ -24,7 +25,8 @@ fn overlap(a: &[(f64, f64); 4], b: &[(f64, f64); 4]) -> f64 {
                 continue;
             }
             let (nx, nz) = (nx / l, nz / l);
-            let proj = |v: &[(f64, f64); 4]| v.iter().map(|p| p.0 * nx + p.1 * nz).fold((f64::MAX, f64::MIN), |a, d| (a.0.min(d), a.1.max(d)));
+            let proj =
+                |v: &[(f64, f64); 4]| v.iter().map(|p| p.0 * nx + p.1 * nz).fold((f64::MAX, f64::MIN), |a, d| (a.0.min(d), a.1.max(d)));
             let (a0, a1) = proj(a);
             let (b0, b1) = proj(b);
             min = min.min(a1.min(b1) - a0.max(b0));
@@ -48,7 +50,9 @@ fn inside(room: &Room, x: f64, z: f64) -> bool {
 
 /// Distance from a point to a wall face (as a segment).
 fn dist_to_wall(room: &Room, i: usize, x: f64, z: f64) -> f64 {
-    let Some(w) = room.wall(i) else { return f64::MAX };
+    let Some(w) = room.wall(i) else {
+        return f64::MAX;
+    };
     let (t, s) = w.local(x, z);
     let t = t.clamp(0.0, w.len);
     let (px, pz) = w.point(t, 0.0);
@@ -67,7 +71,8 @@ pub fn check(project: &Project, warnings: &mut Vec<String>) {
             if band <= 2.0 {
                 continue;
             }
-            let o = overlap(&corners(a), &corners(b));
+            let (ca, cb) = (corners(a), corners(b));
+            let o = ca.iter().flat_map(|qa| cb.iter().map(move |qb| overlap(qa, qb))).fold(f64::MIN, f64::max);
             if o > 2.0 {
                 warnings.push(format!("{} and {} overlap by {:.0} mm", name(a), name(b), o));
             }
@@ -79,9 +84,10 @@ pub fn check(project: &Project, warnings: &mut Vec<String>) {
     }
     // 2. Cabinets through walls: a footprint corner outside the room.
     for c in cabs {
-        let out = corners(c).iter().any(|&(x, z)| {
-            !inside(room, x, z) && (0..room.walls.len()).all(|k| dist_to_wall(room, k, x, z) > 2.0)
-        });
+        let out = corners(c)
+            .iter()
+            .flatten()
+            .any(|&(x, z)| !inside(room, x, z) && (0..room.walls.len()).all(|k| dist_to_wall(room, k, x, z) > 2.0));
         if out {
             warnings.push(format!("{} goes through a wall", name(c)));
         }
@@ -89,7 +95,9 @@ pub fn check(project: &Project, warnings: &mut Vec<String>) {
     // 3. Doors hinged against a wall at right angles: they stop at 90°,
     //    hit the wall's handle side and drawers will not clear. Needs a filler.
     for c in cabs.iter().filter(|c| c.kind.is_carcass() && c.doors > 0) {
-        let sides: Vec<(HingeSide, f64)> = if c.doors >= 2 {
+        let sides: Vec<(HingeSide, f64)> = if c.is_l() {
+            vec![(HingeSide::Left, 0.0)]
+        } else if c.doors >= 2 {
             vec![(HingeSide::Left, 0.0), (HingeSide::Right, c.width)]
         } else {
             vec![(c.hinge_side, if c.hinge_side == HingeSide::Left { 0.0 } else { c.width })]
@@ -128,7 +136,8 @@ mod tests {
 
     #[test]
     fn overlap_detected_and_touching_ok() {
-        let mut p = Project { cabinets: vec![base("a", 0.0, 0.0, 0.0), base("b", 600.0, 0.0, 0.0)], room: Room::default(), ..sample_kitchen() };
+        let mut p =
+            Project { cabinets: vec![base("a", 0.0, 0.0, 0.0), base("b", 600.0, 0.0, 0.0)], room: Room::default(), ..sample_kitchen() };
         let mut w = vec![];
         check(&p, &mut w);
         assert!(w.is_empty(), "{w:?}");
@@ -147,11 +156,8 @@ mod tests {
 
     #[test]
     fn rotated_overlap() {
-        let p = Project {
-            cabinets: vec![base("a", 0.0, 0.0, 0.0), base("b", 900.0, 300.0, -90.0)],
-            room: Room::default(),
-            ..sample_kitchen()
-        };
+        let p =
+            Project { cabinets: vec![base("a", 0.0, 0.0, 0.0), base("b", 900.0, 300.0, -90.0)], room: Room::default(), ..sample_kitchen() };
         let mut w = vec![];
         check(&p, &mut w);
         // b's footprint x 340..900, z 300..900 hits a (x 0..600, z 0..560)

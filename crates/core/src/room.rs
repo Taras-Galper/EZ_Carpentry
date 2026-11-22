@@ -126,10 +126,7 @@ impl Wall {
         (dx * self.dir[0] + dz * self.dir[1], dx * self.normal[0] + dz * self.normal[1])
     }
     pub fn point(&self, t: f64, s: f64) -> (f64, f64) {
-        (
-            self.start[0] + self.dir[0] * t + self.normal[0] * s,
-            self.start[1] + self.dir[1] * t + self.normal[1] * s,
-        )
+        (self.start[0] + self.dir[0] * t + self.normal[0] * s, self.start[1] + self.dir[1] * t + self.normal[1] * s)
     }
 }
 
@@ -152,9 +149,9 @@ const WALL_FILLER: f64 = 50.0;
 /// Leftovers narrower than this are left as a gap.
 const MIN_FILLER: f64 = 20.0;
 
-fn footprint(c: &Cabinet) -> [(f64, f64); 4] {
+fn footprint(c: &Cabinet) -> Vec<(f64, f64)> {
     let p = |x: f64, z: f64| crate::parts::to_world(c.x, c.z, c.rotation, x, z);
-    [p(0.0, 0.0), p(c.width, 0.0), p(0.0, c.depth), p(c.width, c.depth)]
+    c.rects().iter().flat_map(|r| [p(r[0], r[1]), p(r[2], r[1]), p(r[0], r[3]), p(r[2], r[3])]).collect()
 }
 
 /// Does `c` occupy the given height band?
@@ -238,7 +235,9 @@ pub fn pack(len: f64) -> Vec<f64> {
             }
         }
     }
-    let Some(s) = (0..=n).rev().find(|&s| best[s].is_some()) else { return vec![] };
+    let Some(s) = (0..=n).rev().find(|&s| best[s].is_some()) else {
+        return vec![];
+    };
     let mut out = vec![];
     let mut s = s;
     while s > 0 {
@@ -411,7 +410,7 @@ mod tests {
         assert_eq!(w.len(), 4);
         assert_eq!(w[0].normal, [0.0, 1.0]); // back wall, room towards +z
         assert!((w[1].rotation + 90.0).abs() < 1e-9); // right wall like the sample's return leg
-        // drawn the other way round it gets reoriented
+                                                      // drawn the other way round it gets reoriented
         let mut r2 = Room { walls: r.walls.iter().rev().cloned().collect(), ..Room::default() };
         r2.openings.push(Opening { wall: 0, offset: 100.0, width: 800.0, ..Opening::default() });
         r2.orient();
