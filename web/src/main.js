@@ -217,6 +217,7 @@ const CAB_PRESETS = {
   "L corner": () => ({ kind: "base", name: "L corner", width: 1000, width2: 1000, height: 870, depth: 560, toe_kick_height: 100, toe_kick_depth: 60, doors: 1, drawers: [], shelves: 1, corner: "l" }),
   "Wall L": () => ({ kind: "wall", name: "Wall L corner", width: 600, width2: 600, height: 720, depth: 320, elevation: 1450, toe_kick_height: 0, doors: 1, drawers: [], shelves: 2, corner: "l" }),
   Blind: () => ({ kind: "base", name: "Blind corner", width: 1200, height: 870, depth: 560, toe_kick_height: 100, toe_kick_depth: 60, doors: 1, drawers: [], shelves: 1, blind_side: "right", blind_width: 600 }),
+  Oven: () => ({ kind: "tall", name: "Oven housing", width: 600, height: 2200, depth: 580, toe_kick_height: 100, toe_kick_depth: 60, doors: 1, drawers: [375, 375], shelves: 1, housing_height: 590, housing_elevation: 850 }),
   Tall: () => ({ kind: "tall", name: "Tall", width: 600, height: 2200, depth: 580, toe_kick_height: 100, toe_kick_depth: 60, doors: 2, drawers: [], shelves: 5 }),
 };
 function addCabinet(type, preset = null) {
@@ -275,6 +276,7 @@ const ICONS = {
   "Wall L": '<path d="M2 3 h24 v18 h-9 v-10 h-15 z"/><line x1="0" y1="1.5" x2="28" y2="1.5" class="t"/>',
   Blind: '<rect x="2" y="8" width="24" height="22"/><rect x="15" y="8" width="11" height="22" class="k"/><line x1="12" y1="12" x2="12" y2="17"/><rect x="2" y="30" width="24" height="3" class="k"/>',
   Wall: '<rect x="3" y="3" width="22" height="16"/><line x1="20" y1="13" x2="20" y2="17"/><line x1="0" y1="2" x2="28" y2="2" class="t"/>',
+  Oven: '<rect x="7" y="1" width="14" height="30"/><rect x="8.5" y="11" width="11" height="9" class="k"/><line x1="10" y1="13" x2="18" y2="13" class="t"/><line x1="7" y1="25" x2="21" y2="25"/><rect x="7" y="31" width="14" height="2" class="k"/>',
   Tall: '<rect x="7" y="1" width="14" height="30"/><line x1="7" y1="13" x2="21" y2="13"/><rect x="7" y="31" width="14" height="2" class="k"/>',
   Dishwasher: '<rect x="3" y="8" width="22" height="22"/><line x1="10" y1="11.5" x2="18" y2="11.5" class="t"/><rect x="3" y="30" width="22" height="3" class="k"/>',
   Fridge: '<rect x="6" y="3" width="16" height="30" stroke-dasharray="2.2 1.6"/><line x1="9" y1="9" x2="9" y2="14"/><line x1="9" y1="18" x2="9" y2="24"/>',
@@ -446,6 +448,8 @@ function renderProps() {
         c.kind === "tall" ? field("Hanging rail", c, "hanging_rail", "check") : null,
         c.kind === "tall" && c.hanging_rail ? field("Hat shelf gap", c, "hat_space") : null),
       lc ? null : field("Drawers (front heights, top first)", c, "drawers", "list"),
+      !lc && c.kind !== "wall" ? h("h3", {}, "Appliance opening") : null,
+      !lc && c.kind !== "wall" ? h("div", { class: "grid2" }, field("Height", c, "housing_height"), c.housing_height > 0 ? field("From floor", c, "housing_elevation") : h("span")) : null,
     ] : null,
     c.kind === "dishwasher" ? h("div", { class: "grid2" },
       field("Front style", c, "door_style", "select", [["slab", "Slab"], ["shaker", "Shaker"], ["shaker_routed", "Shaker routed"]]),

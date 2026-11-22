@@ -814,4 +814,43 @@ mod tests {
         let back = r.build.parts.iter().find(|q| q.id == "d1-worktop").unwrap();
         assert_eq!(back.w, 600.0 + 800.0 + 1150.0);
     }
+
+    #[test]
+    fn oven_housing() {
+        for back_mode in [BackMode::Applied, BackMode::Grooved] {
+            let mut p = sample_kitchen();
+            p.settings.back_mode = back_mode;
+            let t1 = p.cabinets.iter_mut().find(|c| c.id == "t1").unwrap();
+            t1.drawers = vec![375.0, 375.0];
+            t1.housing_elevation = 850.0;
+            t1.housing_height = 590.0;
+            t1.shelves = 1;
+            let c = t1.clone();
+            let r = compute(&p);
+            assert!(r.build.warnings.is_empty(), "{:?}", r.build.warnings);
+            let get = |k: &str| r.build.parts.iter().find(|q| q.id == format!("t1-{k}"));
+            let (lo, hi) = (get("hfix-l").unwrap(), get("hfix-u").unwrap());
+            assert_eq!(lo.box3d.pos[1] + lo.box3d.size[1], 850.0);
+            assert_eq!(hi.box3d.pos[1], 850.0 + 590.0);
+            // drawers below, upper doors above, nothing in front of the opening
+            let has = |k: &str| r.build.parts.iter().any(|q| q.id.starts_with(&format!("t1-{k}")));
+            assert!(has("dfront2") && has("udoor1") && !has("door1"));
+            let fronts: Vec<_> = r.build.parts.iter().filter(|q| q.cabinet == "t1" && q.role == parts::Role::Front).collect();
+            for f in &fronts {
+                let (y0, y1) = (f.box3d.pos[1], f.box3d.pos[1] + f.box3d.size[1]);
+                assert!(y1 <= 850.0 + 0.01 || y0 >= 1440.0 - 0.01, "{} covers the opening", f.id);
+            }
+            // the adjustable shelf sits above the opening
+            assert!(get("shelf1").unwrap().box3d.pos[1] > 1440.0);
+            // fixed-shelf joints: side bores at each shelf's mid height, three per side
+            let side = get("side-l").unwrap();
+            for q in [lo, hi] {
+                let mid = q.box3d.pos[1] + 9.0 - side.box3d.pos[1];
+                let n = side.holes.iter().filter(|h| h.dia == 7.0 && (h.y - mid).abs() < 0.01).count();
+                assert_eq!(n, 3, "{}", q.id);
+                assert_eq!(q.holes.iter().filter(|h| h.edge.is_some()).count(), 6);
+            }
+            let _ = c;
+        }
+    }
 }

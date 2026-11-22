@@ -1201,7 +1201,21 @@ fn build_carcass(project: &Project, cab: &Cabinet, out: &mut Build) {
     // ---------- fronts ----------
     let g = s.front_gap;
     let ft = fm.thickness;
-    let mut cursor = h;
+    // Appliance housing (oven, microwave): an open slot [gap_lo, gap_hi]
+    // between fixed shelves. Drawers and doors below it, doors above.
+    let housing = if cab.housing_height > 0.0 && cab.kind != CabinetKind::Wall {
+        let (lo, hi) = (cab.housing_elevation, cab.housing_elevation + cab.housing_height);
+        if lo < toe + t - 0.5 || hi > h - t + 0.5 {
+            cx.warn("appliance opening does not fit between bottom and top");
+            None
+        } else {
+            Some((lo, hi))
+        }
+    } else {
+        None
+    };
+    let ceil = housing.map_or(h - t, |(lo, _)| lo - t); // underside of what is above the drawers
+    let mut cursor = housing.map_or(h, |(lo, _)| lo);
     // Blind corner: open part of the front is [ox0, ox1].
     let blind = cab.blind_side != BlindSide::None;
     let bw = cab.blind_width.clamp(0.0, w - 150.0);
@@ -1251,7 +1265,7 @@ fn build_carcass(project: &Project, cab: &Cabinet, out: &mut Build) {
             None => cx.warn("too shallow for drawer slides"),
             Some(sl_len) => {
                 let box_lo = lo.max(toe + t) + 15.0;
-                let box_hi = cursor.min(h - t) - 15.0;
+                let box_hi = cursor.min(ceil) - 15.0;
                 let bh = ((box_hi - box_lo) / 10.0).floor() * 10.0;
                 let bh = bh.min(250.0);
                 let dt = dm.thickness;
@@ -1320,94 +1334,142 @@ fn build_carcass(project: &Project, cab: &Cabinet, out: &mut Build) {
         cursor = lo;
     }
 
-    // Door zone
-    let zone_lo = toe;
-    let zone_hi = cursor;
-    if cab.doors > 0 && zone_hi - zone_lo > 100.0 {
-        let fh = zone_hi - zone_lo - g;
-        let ow = ox1 - ox0;
-        let leaves: Vec<(f64, f64, HingeSide)> = if blind {
-            // One leaf, hinged on the cabinet side away from the blind panel.
-            let side = if cab.blind_side == BlindSide::Left { HingeSide::Right } else { HingeSide::Left };
-            vec![(ox0 + g / 2.0, ow - g, side)]
-        } else if cab.doors >= 2 {
-            let lw = ow / 2.0 - g;
-            vec![(ox0 + g / 2.0, lw, HingeSide::Left), (ox0 + ow / 2.0 + g / 2.0, lw, HingeSide::Right)]
-        } else {
-            vec![(ox0 + g / 2.0, ow - g, cab.hinge_side)]
-        };
-        if cab.doors > 2 {
-            cx.warn("more than 2 doors not supported, using 2");
-        }
-        if blind {
-            let (bx0, bx1) = if cab.blind_side == BlindSide::Left { (0.0, ox0) } else { (ox1, w) };
-            cx.part(
-                "blind",
-                "Blind panel",
-                Role::Front,
-                &fm,
-                bx1 - bx0 - g,
-                fh,
-                true,
-                [true; 4],
-                Box3 { pos: [bx0 + g / 2.0, zone_lo + g / 2.0, d], size: [bx1 - bx0 - g, fh, ft] },
-            );
-        }
-        let hy = hinge_positions(fh);
-        for (n, (x0, fw, side)) in leaves.into_iter().enumerate() {
-            let idx = cx.part(
-                &format!("door{}", n + 1),
-                &format!("Door {}", n + 1),
-                Role::Front,
-                &fm,
-                fw,
-                fh,
-                true,
-                [true; 4],
-                Box3 { pos: [x0, zone_lo + g / 2.0, d], size: [fw, fh, ft] },
-            );
-            // Door is drawn inside face up, so a left-hinged door has
-            // its hinge edge on the drawing's right.
-            let cup_x = match side {
-                HingeSide::Left => fw - s.hinge_cup_inset,
-                HingeSide::Right => s.hinge_cup_inset,
+    // Door zones: below the drawers, and above an appliance housing.
+    let lower_hi = cursor;
+    let mut zones = vec![(toe, cursor, "door", "Door")];
+    if let Some((_, hi)) = housing {
+        zones.push((hi, h, "udoor", "Upper door"));
+    }
+    for (zi, (zone_lo, zone_hi, dkey, dname)) in zones.into_iter().enumerate() {
+        let blind = blind && zi == 0;
+        if cab.doors > 0 && zone_hi - zone_lo > 100.0 {
+            let fh = zone_hi - zone_lo - g;
+            let ow = ox1 - ox0;
+            let leaves: Vec<(f64, f64, HingeSide)> = if blind {
+                // One leaf, hinged on the cabinet side away from the blind panel.
+                let side = if cab.blind_side == BlindSide::Left { HingeSide::Right } else { HingeSide::Left };
+                vec![(ox0 + g / 2.0, ow - g, side)]
+            } else if cab.doors >= 2 {
+                let lw = ow / 2.0 - g;
+                vec![(ox0 + g / 2.0, lw, HingeSide::Left), (ox0 + ow / 2.0 + g / 2.0, lw, HingeSide::Right)]
+            } else {
+                vec![(ox0 + g / 2.0, ow - g, cab.hinge_side)]
             };
-            let handle_x = match side {
-                HingeSide::Left => 40.0,
-                HingeSide::Right => fw - 40.0,
-            };
-            {
-                let p = &mut cx.out.parts[idx];
-                for &y in &hy {
-                    p.holes.push(Hole { x: cup_x, y, dia: 35.0, depth: 13.0, edge: None });
+            if cab.doors > 2 {
+                cx.warn("more than 2 doors not supported, using 2");
+            }
+            if blind {
+                let (bx0, bx1) = if cab.blind_side == BlindSide::Left { (0.0, ox0) } else { (ox1, w) };
+                cx.part(
+                    "blind",
+                    "Blind panel",
+                    Role::Front,
+                    &fm,
+                    bx1 - bx0 - g,
+                    fh,
+                    true,
+                    [true; 4],
+                    Box3 { pos: [bx0 + g / 2.0, zone_lo + g / 2.0, d], size: [bx1 - bx0 - g, fh, ft] },
+                );
+            }
+            let hy = hinge_positions(fh);
+            for (n, (x0, fw, side)) in leaves.into_iter().enumerate() {
+                let idx = cx.part(
+                    &format!("{}{}", dkey, n + 1),
+                    &format!("{} {}", dname, n + 1),
+                    Role::Front,
+                    &fm,
+                    fw,
+                    fh,
+                    true,
+                    [true; 4],
+                    Box3 { pos: [x0, zone_lo + g / 2.0, d], size: [fw, fh, ft] },
+                );
+                // Door is drawn inside face up, so a left-hinged door has
+                // its hinge edge on the drawing's right.
+                let cup_x = match side {
+                    HingeSide::Left => fw - s.hinge_cup_inset,
+                    HingeSide::Right => s.hinge_cup_inset,
+                };
+                let handle_x = match side {
+                    HingeSide::Left => 40.0,
+                    HingeSide::Right => fw - 40.0,
+                };
+                {
+                    let p = &mut cx.out.parts[idx];
+                    for &y in &hy {
+                        p.holes.push(Hole { x: cup_x, y, dia: 35.0, depth: 13.0, edge: None });
+                    }
+                    if cab.handles {
+                        let sp = s.handle_spacing;
+                        let yc = match cab.kind {
+                            CabinetKind::Base => fh - 60.0 - sp / 2.0,
+                            CabinetKind::Wall => 60.0 + sp / 2.0,
+                            _ => (1000.0 - zone_lo).clamp(sp, fh - sp),
+                        };
+                        p.holes.push(Hole { x: handle_x, y: yc - sp / 2.0, dia: 5.0, depth: 0.0, edge: None });
+                        p.holes.push(Hole { x: handle_x, y: yc + sp / 2.0, dia: 5.0, depth: 0.0, edge: None });
+                    }
                 }
                 if cab.handles {
-                    let sp = s.handle_spacing;
-                    let yc = match cab.kind {
-                        CabinetKind::Base => fh - 60.0 - sp / 2.0,
-                        CabinetKind::Wall => 60.0 + sp / 2.0,
-                        _ => (1000.0 - zone_lo).clamp(sp, fh - sp),
-                    };
-                    p.holes.push(Hole { x: handle_x, y: yc - sp / 2.0, dia: 5.0, depth: 0.0, edge: None });
-                    p.holes.push(Hole { x: handle_x, y: yc + sp / 2.0, dia: 5.0, depth: 0.0, edge: None });
+                    cx.hw(format!("Handle {}mm", s.handle_spacing), 1);
                 }
-            }
-            if cab.handles {
-                cx.hw(format!("Handle {}mm", s.handle_spacing), 1);
-            }
-            cx.hw("Clip hinge 110° + plate", hy.len() as u32);
-            let target = if side == HingeSide::Left { &mut side_l } else { &mut side_r };
-            for &y in &hy {
-                let yw = zone_lo + g / 2.0 + y;
-                target.push(Hole { x: sl, y: yw - 16.0, dia: 5.0, depth: 12.0, edge: None });
-                target.push(Hole { x: sl, y: yw + 16.0, dia: 5.0, depth: 12.0, edge: None });
+                cx.hw("Clip hinge 110° + plate", hy.len() as u32);
+                let target = if side == HingeSide::Left { &mut side_l } else { &mut side_r };
+                for &y in &hy {
+                    let yw = zone_lo + g / 2.0 + y;
+                    target.push(Hole { x: sl, y: yw - 16.0, dia: 5.0, depth: 12.0, edge: None });
+                    target.push(Hole { x: sl, y: yw + 16.0, dia: 5.0, depth: 12.0, edge: None });
+                }
             }
         }
     }
 
     // ---------- wardrobe: fixed hat shelf + hanging rail ----------
-    let mut in_hi = zone_hi.min(h - t);
-    if cab.hanging_rail && cab.kind != CabinetKind::Wall {
+    let mut in_hi = lower_hi.min(h - t);
+    let mut in_lo = toe + t;
+    if let Some((lo, hi)) = housing {
+        // Fixed shelves above and below the opening (unless the top or bottom
+        // is already there), joined like a bottom; adjustable shelves go above.
+        let hd = idp;
+        let at = [50.0, hd / 2.0, hd - 50.0];
+        for (key, name, y) in [("hfix-l", "Housing shelf lower", lo - t), ("hfix-u", "Housing shelf upper", hi)] {
+            if y < toe + t - 0.5 || y > h - 2.0 * t + 0.5 {
+                continue;
+            }
+            let idx = cx.part(
+                key,
+                name,
+                Role::Carcass,
+                &cm,
+                iw,
+                hd,
+                false,
+                [true, false, false, false],
+                Box3 { pos: [t, y, bz], size: [iw, t, hd] },
+            );
+            for &a in &at {
+                both(&mut side_l, &mut side_r, Hole { x: a, y: y + t / 2.0, dia: side_dia, depth: side_depth, edge: None });
+            }
+            let p = &mut cx.out.parts[idx];
+            for a in at {
+                for (e, x) in [(3u8, 0.0), (1u8, p.w)] {
+                    p.holes.push(Hole { x, y: r1(a), dia: edge_dia, depth: edge_depth, edge: Some(e) });
+                }
+            }
+        }
+        cx.out.placeholders.push(Placeholder {
+            cabinet: cab.id.clone(),
+            label: "Appliance".into(),
+            box3d: Box3 { pos: [t + 2.0, lo, bz + 20.0], size: [iw - 4.0, hi - lo - 5.0, d - bz - 20.0] },
+        });
+        if cab.hanging_rail {
+            cx.warn("no hanging rail in an appliance housing");
+        }
+        in_lo = hi + t;
+        in_hi = h - t;
+    }
+    if cab.hanging_rail && cab.kind != CabinetKind::Wall && housing.is_none() {
         let yh = h - t - cab.hat_space.max(t + 50.0) - t; // hat shelf underside
         if yh > toe + t + 900.0 {
             let hd = idp - s.shelf_setback;
@@ -1450,7 +1512,6 @@ fn build_carcass(project: &Project, cab: &Cabinet, out: &mut Build) {
     }
 
     // ---------- shelves ----------
-    let in_lo = toe + t;
     if cab.shelves > 0 && in_hi - in_lo > 150.0 {
         let mut rows = vec![];
         let mut y = in_lo + 64.0;

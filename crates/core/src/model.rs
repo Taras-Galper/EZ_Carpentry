@@ -355,6 +355,10 @@ pub struct Cabinet {
     pub hanging_rail: bool,
     /// Gap between the hat shelf and the top panel.
     pub hat_space: f64,
+    /// Appliance housing: open slot of this height (0 = none) whose bottom
+    /// is `housing_elevation` above the floor, between fixed shelves.
+    pub housing_height: f64,
+    pub housing_elevation: f64,
     /// Worktop cut-out centred over this cabinet. Sizes of 0 use the
     /// kind's default; setback is from the worktop front edge.
     pub cutout: CutoutKind,
@@ -401,6 +405,8 @@ impl Default for Cabinet {
             back_finished: false,
             hanging_rail: false,
             hat_space: 300.0,
+            housing_height: 0.0,
+            housing_elevation: 850.0,
             cutout: CutoutKind::None,
             cutout_width: 0.0,
             cutout_depth: 0.0,
