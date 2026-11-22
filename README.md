@@ -122,6 +122,9 @@ Frameless / System 32, full-overlay fronts. Parts are drawn inside face up (hing
 - Dishwasher: integrated decor panel (slab or Shaker) and toe kick; the machine is shown in 3D but not cut. Joins worktop runs.
 - Appliance space (fridge, freestanding oven): holds the space, cuts nothing, not charged. Under-worktop height (< 1000 mm on the floor) joins worktop runs; taller ones end them.
 - Filler: front-material strip plus toe kick; joins worktop runs when under-worktop height.
+- Plinth (Project): toe-kick board fixed to notched sides, or legs + plinth — sides stop above the plinth (holes move with them), 4 adjustable legs (6 over 900 mm wide) and 2 plinth clips per cabinet.
+- Wardrobe (tall cabinet, Hanging rail): fixed hat shelf (hat-shelf gap below the top), joined like a bottom; Ø25 rail 60 mm under it with two supports; adjustable shelves go below the hat shelf.
+- Finished back (islands): front-material panel over the back, covering end panels too.
 - End panels: finished side in front material outside the carcass, deep enough to cover the door edge, full height.
 - Blind corner: the blind side of the front is a fixed panel (blind width) that the return leg covers; one door fills the rest, hinged away from the blind side. Drawers are not built in blind corners.
 - Routed Shaker: one-piece MDF front with the recess (frame width, routed depth) on the outside face; machine it as a second-face operation.

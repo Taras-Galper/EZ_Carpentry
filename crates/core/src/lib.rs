@@ -144,11 +144,14 @@ mod tests {
     /// Every side bore of a joint lines up with an edge bore in the panel it holds.
     #[test]
     fn joint_bores_line_up() {
-        for joinery in [Joinery::Confirmat, Joinery::Dowel] {
+        for (joinery, plinth) in [(Joinery::Confirmat, Plinth::Board), (Joinery::Dowel, Plinth::Legs)] {
             for back_mode in [BackMode::Applied, BackMode::Grooved] {
                 let mut p = sample_kitchen();
                 p.settings.joinery = joinery;
                 p.settings.back_mode = back_mode;
+                p.settings.plinth = plinth;
+                // a wardrobe adds a hat shelf joint
+                p.cabinets[0].hanging_rail = true;
                 let r = compute(&p);
                 for c in p.cabinets.iter().filter(|c| c.kind.is_carcass()) {
                     let side = r.build.parts.iter().find(|q| q.id == format!("{}-side-l", c.id)).unwrap();
@@ -158,7 +161,7 @@ mod tests {
                         .holes
                         .iter()
                         .filter(|h| h.dia == joint_dia)
-                        .map(|h| ((c.depth - h.x).round() as i64, h.y.round() as i64))
+                        .map(|h| ((c.depth - h.x).round() as i64, (h.y + side.box3d.pos[1]).round() as i64))
                         .collect();
                     // panel left-edge bores: drawing y from the front -> z = depth - y; height = panel mid
                     let mut from_panels: Vec<(i64, i64)> = r
@@ -568,6 +571,32 @@ mod tests {
         assert_eq!(labels.matches("<div class=page>").count(), r.build.parts.len().div_ceil(24));
         assert_eq!(packet.matches("<section class=land>").count(), r.nesting.sheets.len());
         assert!(packet.contains("2026-11-22"));
+    }
+
+    #[test]
+    fn legs_wardrobe_and_finished_back() {
+        let mut p = sample_kitchen();
+        p.settings.plinth = Plinth::Legs;
+        p.cabinets.retain(|c| c.id == "t1" || c.id == "b4");
+        p.cabinets[0].hanging_rail = true;
+        p.cabinets[0].shelves = 0;
+        p.cabinets[1].back_finished = true;
+        let r = compute(&p);
+        assert!(r.build.warnings.is_empty(), "{:?}", r.build.warnings);
+        let get = |id: &str| r.build.parts.iter().find(|q| q.id == id).unwrap();
+        // on legs: plain rectangular sides that stop at the plinth
+        let side = get("b4-side-l");
+        assert_eq!(side.outline.len(), 4);
+        assert_eq!(side.h, 870.0 - 100.0);
+        assert_eq!(get("b4-toe").name, "Plinth");
+        assert!(r.build.hardware.iter().any(|h| h.cabinet == "b4" && h.name.starts_with("Adjustable leg") && h.qty == 4));
+        // wardrobe: hat shelf 300 below the top, rail hardware
+        let hat = get("t1-hat");
+        assert_eq!(hat.box3d.pos[1] + 18.0, 2200.0 - 18.0 - 300.0);
+        assert!(r.build.hardware.iter().any(|h| h.cabinet == "t1" && h.name.starts_with("Wardrobe rail Ø25")));
+        // finished back covers the whole back
+        let fb = get("b4-back-fin");
+        assert_eq!((fb.w, fb.h), (450.0, 870.0));
     }
 
     #[test]

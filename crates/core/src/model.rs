@@ -106,6 +106,7 @@ pub struct Settings {
     pub routed_depth: f64,
     pub joinery: Joinery,
     pub back_mode: BackMode,
+    pub plinth: Plinth,
     /// Grooved back: distance from the carcass back edge to the groove.
     pub back_inset: f64,
     /// Depth of back-panel and drawer-bottom grooves.
@@ -136,6 +137,7 @@ impl Default for Settings {
             routed_depth: 6.0,
             joinery: Joinery::Confirmat,
             back_mode: BackMode::Applied,
+            plinth: Plinth::Board,
             back_inset: 10.0,
             groove_depth: 8.0,
             room_width: 0.0,
@@ -230,6 +232,17 @@ pub enum Joinery {
     Dowel,
 }
 
+/// What the floor-standing carcasses stand on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum Plinth {
+    /// Sides run to the floor with a toe-kick notch; board fixed to the carcass.
+    #[default]
+    Board,
+    /// Carcass on adjustable legs; plinth board clips to the legs.
+    Legs,
+}
+
 /// How the back panel is fitted.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
@@ -306,6 +319,12 @@ pub struct Cabinet {
     /// Finished end panels (front material) outside the carcass sides.
     pub end_left: bool,
     pub end_right: bool,
+    /// Finished panel (front material) over the back, for islands.
+    pub back_finished: bool,
+    /// Wardrobe: fixed hat shelf near the top with a hanging rail under it.
+    pub hanging_rail: bool,
+    /// Gap between the hat shelf and the top panel.
+    pub hat_space: f64,
     /// Worktop cut-out centred over this cabinet. Sizes of 0 use the
     /// kind's default; setback is from the worktop front edge.
     pub cutout: CutoutKind,
@@ -347,6 +366,9 @@ impl Default for Cabinet {
             blind_width: 600.0,
             end_left: false,
             end_right: false,
+            back_finished: false,
+            hanging_rail: false,
+            hat_space: 300.0,
             cutout: CutoutKind::None,
             cutout_width: 0.0,
             cutout_depth: 0.0,

@@ -217,7 +217,8 @@ text{{fill:#1f1d1a}}.ttl{{font-weight:700}}
     let syv = |y: f64| sy0 - y;
     if let Some(side) = parts.iter().find(|p| p.id.ends_with("-side-l")) {
         // side drawing: x from carcass front, y up; carcass front is at z = d
-        let pts: Vec<(f64, f64)> = side.outline.iter().map(|q| (u(d - q[0]), syv(q[1]))).collect();
+        let y0 = side.box3d.pos[1]; // sides on legs start above the floor
+        let pts: Vec<(f64, f64)> = side.outline.iter().map(|q| (u(d - q[0]), syv(q[1] + y0))).collect();
         s.poly(&pts, "ghost");
     }
     // off-centre so the cut passes through a leaf of a double door

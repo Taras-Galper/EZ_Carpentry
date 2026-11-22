@@ -147,14 +147,18 @@ const PRESETS = {
   Dishwasher: () => ({ kind: "dishwasher", name: "Dishwasher", width: 600, height: 870, depth: 560, toe_kick_height: 100, toe_kick_depth: 60, doors: 0, drawers: [], shelves: 0 }),
   Fridge: () => ({ kind: "appliance", name: "Fridge", width: 600, height: 2000, depth: 650, toe_kick_height: 0, doors: 0, drawers: [], shelves: 0 }),
   Filler: () => ({ kind: "filler", name: "Filler", width: 50, height: 870, depth: 560, toe_kick_height: 100, toe_kick_depth: 60, doors: 0, drawers: [], shelves: 0 }),
+  Wardrobe: () => ({ kind: "tall", name: "Wardrobe", width: 1000, height: 2300, depth: 600, toe_kick_height: 100, toe_kick_depth: 60, doors: 2, drawers: [], shelves: 0, hanging_rail: true }),
+  Open: () => ({ kind: "wall", name: "Open shelf", width: 600, height: 720, depth: 320, elevation: 1450, toe_kick_height: 0, doors: 0, drawers: [], shelves: 2 }),
   Corner: () => ({ kind: "base", name: "Blind corner", width: 1200, height: 870, depth: 560, toe_kick_height: 100, toe_kick_depth: 60, doors: 1, drawers: [], shelves: 1, blind_side: "right", blind_width: 600 }),
   Tall: () => ({ kind: "tall", name: "Tall", width: 600, height: 2200, depth: 580, toe_kick_height: 100, toe_kick_depth: 60, doors: 2, drawers: [], shelves: 5 }),
 };
 function addCabinet(type) {
   const p = PRESETS[type]();
   const prefix = { base: "b", wall: "w", tall: "t", dishwasher: "d", appliance: "a", filler: "f" }[p.kind];
-  // Append to the back-wall run of the same tier; match the project's front style.
-  const same = project.cabinets.filter((c) => !c.rotation && (c.kind === "wall") === (p.kind === "wall"));
+  // Append to the back-wall run after anything at the same height (a tall
+  // cabinet blocks both base and wall units); match the project's front style.
+  const elev = p.elevation || 0, top = elev + p.height;
+  const same = project.cabinets.filter((c) => !c.rotation && c.elevation < top && c.elevation + c.height > elev);
   const x = same.reduce((m, c) => Math.max(m, c.x + c.width), 0);
   const style = project.cabinets.find((c) => c.id === selected)?.door_style || project.cabinets[0]?.door_style || "slab";
   const c = {
@@ -182,6 +186,8 @@ const ICONS = {
   Dishwasher: '<rect x="3" y="8" width="22" height="22"/><line x1="10" y1="11.5" x2="18" y2="11.5" class="t"/><rect x="3" y="30" width="22" height="3" class="k"/>',
   Fridge: '<rect x="6" y="3" width="16" height="30" stroke-dasharray="2.2 1.6"/><line x1="9" y1="9" x2="9" y2="14"/><line x1="9" y1="18" x2="9" y2="24"/>',
   Filler: '<rect x="11" y="8" width="6" height="22"/><rect x="11" y="30" width="6" height="3" class="k"/>',
+  Wardrobe: '<rect x="3" y="1" width="22" height="30"/><line x1="3" y1="7" x2="25" y2="7"/><line x1="6" y1="10" x2="22" y2="10" class="t"/><path d="M14 10 v2 l-4 4 h8 l-4 -4" fill="none"/><rect x="3" y="31" width="22" height="2" class="k"/>',
+  Open: '<rect x="3" y="3" width="22" height="16"/><line x1="3" y1="8.5" x2="25" y2="8.5"/><line x1="3" y1="14" x2="25" y2="14"/><line x1="0" y1="2" x2="28" y2="2" class="t"/>',
 };
 function renderPalette() {
   const el = $("#palette");
@@ -247,6 +253,7 @@ function renderProps() {
         field("Shelf setback", s, "shelf_setback"),
         field("Joinery", s, "joinery", "select", [["confirmat", "Confirmat"], ["dowel", "Dowel"]]),
         field("Back", s, "back_mode", "select", [["applied", "Applied"], ["grooved", "In groove"]]),
+        field("Plinth", s, "plinth", "select", [["board", "Toe-kick board"], ["legs", "Legs + plinth"]]),
         s.back_mode === "grooved" ? field("Back inset", s, "back_inset") : null,
         field("Groove depth", s, "groove_depth")),
       h("h3", {}, "Room"),
@@ -311,7 +318,10 @@ function renderProps() {
         field("Shelves", c, "shelves", "int"),
         field("Handles", c, "handles", "check"),
         field("End panel L", c, "end_left", "check"),
-        field("End panel R", c, "end_right", "check")),
+        field("End panel R", c, "end_right", "check"),
+        field("Finished back", c, "back_finished", "check"),
+        c.kind === "tall" ? field("Hanging rail", c, "hanging_rail", "check") : null,
+        c.kind === "tall" && c.hanging_rail ? field("Hat shelf gap", c, "hat_space") : null),
       field("Drawers (front heights, top first)", c, "drawers", "list"),
     ] : null,
     c.kind === "dishwasher" ? h("div", { class: "grid2" },

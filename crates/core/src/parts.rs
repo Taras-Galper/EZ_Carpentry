@@ -421,6 +421,13 @@ fn end_panels(project: &Project, cab: &Cabinet, out: &mut Build) {
                 Box3 { pos: [x, 0.0, 0.0], size: [ft, h, d + ft] });
         }
     }
+    if cab.back_finished {
+        // covers the end panels too
+        let x0 = if cab.end_left { -ft } else { 0.0 };
+        let x1 = if cab.end_right { w + ft } else { w };
+        cx.part("back-fin", "Finished back", Role::Front, &fm, x1 - x0, h, true, [false, true, true, true],
+            Box3 { pos: [x0, 0.0, -ft], size: [x1 - x0, h, ft] });
+    }
 }
 
 /// Split a slab front into a five-piece Shaker door. Holes go to the
@@ -682,6 +689,10 @@ fn build_carcass(project: &Project, cab: &Cabinet, out: &mut Build) {
         cab.toe_kick_height.max(0.0)
     };
     let tkd = cab.toe_kick_depth.clamp(0.0, d * 0.5);
+    // On legs the sides start above the plinth; holes are shifted to match.
+    let legs = s.plinth == Plinth::Legs && toe > 0.0;
+    let side_y0 = if legs { toe } else { 0.0 };
+    let side_h = h - side_y0;
     // Back construction decides how deep the carcass panels are and where
     // the interior starts.
     let grooved = s.back_mode == BackMode::Grooved;
@@ -795,7 +806,7 @@ fn build_carcass(project: &Project, cab: &Cabinet, out: &mut Build) {
     if toe > 0.0 {
         cx.part(
             "toe",
-            "Toe kick",
+            if legs { "Plinth" } else { "Toe kick" },
             Role::Carcass,
             &cm,
             iw,
@@ -827,7 +838,7 @@ fn build_carcass(project: &Project, cab: &Cabinet, out: &mut Build) {
             p.pockets.push(Pocket { x: 0.0, y: r1(back_groove_y(pd)), w: p.w, h: gw, depth: gd, r: 0.0, face: 1 });
         }
         // sides: full-height groove, x from the front
-        let groove = Pocket { x: r1(back_groove_y(cd)), y: 0.0, w: gw, h: h, depth: gd, r: 0.0, face: 1 };
+        let groove = Pocket { x: r1(back_groove_y(cd)), y: 0.0, w: gw, h: side_h, depth: gd, r: 0.0, face: 1 };
         side_pockets.push(groove);
     } else {
         cx.part(
@@ -1057,9 +1068,52 @@ fn build_carcass(project: &Project, cab: &Cabinet, out: &mut Build) {
         }
     }
 
+    // ---------- wardrobe: fixed hat shelf + hanging rail ----------
+    let mut in_hi = zone_hi.min(h - t);
+    if cab.hanging_rail && cab.kind != CabinetKind::Wall {
+        let yh = h - t - cab.hat_space.max(t + 50.0) - t; // hat shelf underside
+        if yh > toe + t + 900.0 {
+            let hd = idp - s.shelf_setback;
+            let idx = cx.part(
+                "hat",
+                "Hat shelf",
+                Role::Carcass,
+                &cm,
+                iw,
+                hd,
+                false,
+                [true, false, false, false],
+                Box3 { pos: [t, yh, bz], size: [iw, t, hd] },
+            );
+            // joined like a bottom: side bores + edge bores. The shelf is set
+            // back, so side bores (measured from the carcass front) move with it.
+            let at = [50.0, hd / 2.0, hd - 50.0];
+            let setback = d - (bz + hd);
+            for &y in &at {
+                both(&mut side_l, &mut side_r, Hole { x: setback + y, y: yh + t / 2.0, dia: side_dia, depth: side_depth, edge: None });
+            }
+            let p = &mut cx.out.parts[idx];
+            for y in at {
+                for (e, x) in [(3u8, 0.0), (1u8, p.w)] {
+                    p.holes.push(Hole { x, y: r1(y), dia: edge_dia, depth: edge_depth, edge: Some(e) });
+                }
+            }
+            let rail_y = yh - 60.0;
+            cx.out.placeholders.push(Placeholder {
+                cabinet: cab.id.clone(),
+                label: "Hanging rail".into(),
+                box3d: Box3 { pos: [t, rail_y - 12.0, bz + hd / 2.0 - 12.0], size: [iw, 24.0, 24.0] },
+            });
+            cx.hw(format!("Wardrobe rail Ø25 × {:.0}", iw - 2.0), 1);
+            cx.hw("Wardrobe rail support", 2);
+            in_hi = yh;
+        } else {
+            cx.warn("too low for a hat shelf and hanging rail");
+        }
+    }
+
     // ---------- shelves ----------
     let in_lo = toe + t;
-    let in_hi = zone_hi.min(h - t);
     if cab.shelves > 0 && in_hi - in_lo > 150.0 {
         let mut rows = vec![];
         let mut y = in_lo + 64.0;
@@ -1111,14 +1165,14 @@ fn build_carcass(project: &Project, cab: &Cabinet, out: &mut Build) {
             Role::Carcass,
             &cm,
             cd,
-            h,
+            side_h,
             true,
             [false, false, false, true],
-            Box3 { pos: [x, 0.0, z0], size: [t, h, cd] },
+            Box3 { pos: [x, side_y0, z0], size: [t, side_h, cd] },
         );
         let p = &mut cx.out.parts[idx];
         p.pockets = side_pockets.clone();
-        if toe > 0.0 && tkd > 0.0 {
+        if toe > 0.0 && tkd > 0.0 && !legs {
             p.outline = vec![
                 [0.0, r1(toe)],
                 [r1(tkd), r1(toe)],
@@ -1132,12 +1186,31 @@ fn build_carcass(project: &Project, cab: &Cabinet, out: &mut Build) {
             .into_iter()
             .map(|mut h| {
                 h.x = r1(h.x);
-                h.y = r1(h.y);
+                h.y = r1(h.y - side_y0);
                 h
             })
             .collect();
         if key == "side-r" {
             p.mirror_x();
+        }
+    }
+    if legs {
+        let n_legs = if w > 900.0 { 6 } else { 4 };
+        cx.hw(format!("Adjustable leg {:.0} mm", toe), n_legs);
+        cx.hw("Plinth clip", 2);
+        let zf = d - tkd - t - 70.0;
+        let mut xs = vec![40.0, w - 80.0];
+        if n_legs == 6 {
+            xs.push(w / 2.0 - 20.0);
+        }
+        for x in xs {
+            for z in [z0 + 40.0, zf] {
+                cx.out.placeholders.push(Placeholder {
+                    cabinet: cab.id.clone(),
+                    label: "Leg".into(),
+                    box3d: Box3 { pos: [x, 0.0, z], size: [40.0, toe, 40.0] },
+                });
+            }
         }
     }
     // Sides first in the parts list.
