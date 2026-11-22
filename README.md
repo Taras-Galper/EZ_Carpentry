@@ -127,7 +127,7 @@ Frameless / System 32, full-overlay fronts. Parts are drawn inside face up (hing
 - Hinges: 2 up to 900 mm, 3 to 1600, 4 to 2000, then 5; cups at the hinge-cup inset, plates on the system line.
 - Slides: longest of 250–550 mm that fits; drawer box = interior − 2 × slide clearance.
 - Shelf-pin rows at the system line from front and back, 32 mm pitch; shelves snap to the nearest row.
-- Worktop: one per straight run of touching base cabinets along their own axis (any rotation), deepest cabinet + overhang. At an L corner the later run is trimmed to butt against the first. Set thickness 0 to turn off.
+- Worktop: one per straight run of touching base cabinets along their own axis (any rotation), deepest cabinet + overhang. At an L corner the later run is trimmed to butt against the first. Run ends cover end panels; free-standing ends (no wall or cabinet beside them) also get the end overhang. Set thickness 0 to turn off.
 - Worktop cut-outs: set Sink or Hob on a base cabinet; the cut-out is centred over it, set back from the worktop front. Sizes of 0 use 760 × 440 R10 (sink) and 560 × 490 R5 (hob). A warning appears when a cut-out comes within 50 mm of a worktop edge or is wider than the cabinet interior.
 - Dishwasher: integrated decor panel (slab or Shaker) and toe kick; the machine is shown in 3D but not cut. Joins worktop runs.
 - Appliance space (fridge, freestanding oven): holds the space, cuts nothing, not charged. Under-worktop height (< 1000 mm on the floor) joins worktop runs; taller ones end them.

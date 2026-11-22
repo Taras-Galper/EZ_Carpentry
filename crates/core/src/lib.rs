@@ -247,10 +247,10 @@ mod tests {
         let r = compute(&p);
         let tops: Vec<_> = r.build.parts.iter().filter(|p| p.role == parts::Role::Worktop).collect();
         assert_eq!(tops.len(), 2, "back run + return leg");
-        // back run b1+b2+b3, return leg b4+b5
+        // back run d1+b2+b3, return leg b4+b5+b6 and over b6's 19 mm end panel
         let mut lens: Vec<f64> = tops.iter().map(|t| t.w).collect();
         lens.sort_by(|a, b| a.total_cmp(b));
-        assert_eq!(lens, vec![450.0 + 600.0 + 450.0, 600.0 + 800.0 + 1150.0]);
+        assert_eq!(lens, vec![450.0 + 600.0 + 450.0 + 19.0, 600.0 + 800.0 + 1150.0]);
         // world footprints touch but do not overlap
         let rect = |t: &parts::Part| {
             let c = p.cabinets.iter().find(|c| c.id == t.cabinet).unwrap();
@@ -282,7 +282,7 @@ mod tests {
         let r = compute(&p);
         let leg = r.build.parts.iter().find(|q| q.id == "b4-worktop").unwrap();
         assert_eq!(leg.box3d.pos[0], 580.0);
-        assert_eq!(leg.w, 450.0 + 600.0 + 450.0 - 580.0);
+        assert_eq!(leg.w, 450.0 + 600.0 + 450.0 + 19.0 - 580.0);
     }
 
     #[test]
@@ -800,5 +800,18 @@ mod tests {
             checks::check(&q, &mut w);
             assert!(!w.iter().any(|m| m.contains("overlap")), "wall {wi}: {w:?}");
         }
+    }
+
+    #[test]
+    fn worktop_overhangs_free_ends_only() {
+        let mut p = sample_kitchen();
+        p.settings.worktop_end_overhang = 25.0;
+        let r = compute(&p);
+        let leg = r.build.parts.iter().find(|q| q.id == "b4-worktop").unwrap();
+        // free end beside b6: end panel 19 + overhang 25; the corner end stays trimmed
+        assert_eq!(leg.w, 450.0 + 600.0 + 450.0 + 19.0 + 25.0);
+        // the back run sits between the tall pantry and the return leg: no overhang
+        let back = r.build.parts.iter().find(|q| q.id == "d1-worktop").unwrap();
+        assert_eq!(back.w, 600.0 + 800.0 + 1150.0);
     }
 }

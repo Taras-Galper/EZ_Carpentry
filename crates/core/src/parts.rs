@@ -645,6 +645,46 @@ fn build_worktops(project: &Project, out: &mut Build) {
         })
         .collect();
 
+    // Run ends: cover end panels, and overhang ends that stand free
+    // (no wall, no cabinet at worktop height right beside them).
+    let walls = project.room.walls();
+    let th = s.worktop_thickness;
+    let free = |c: &Cabinet, lx: f64, lz: f64| -> bool {
+        let (wx, wz) = to_world(c.x, c.z, c.rotation, lx, lz);
+        let (y0, y1) = (c.elevation + c.height - 50.0, c.elevation + c.height + th);
+        let by_cab = project.cabinets.iter().any(|o| {
+            if o.elevation >= y1 || o.elevation + o.height <= y0 {
+                return false;
+            }
+            let (x, z) = to_local(o.x, o.z, o.rotation, wx, wz);
+            o.rects().iter().any(|r| x > r[0] - 0.5 && x < r[2] + 0.5 && z > r[1] - 0.5 && z < r[3] + 0.5)
+        });
+        let by_wall = walls.iter().any(|w| {
+            let (t, s2) = w.local(wx, wz);
+            s2.abs() < 10.0 && t > -1.0 && t < w.len + 1.0
+        });
+        !by_cab && !by_wall
+    };
+    for t in tops.iter_mut() {
+        let (first, _) = t.members[0];
+        let (last, last_off) = t.members[t.members.len() - 1];
+        let panel = |c: &Cabinet, right: bool| {
+            let on = if right { c.end_right && !c.is_l() } else { c.end_left && !c.id.ends_with("~b") };
+            if on {
+                project.material(&c.front_material).thickness
+            } else {
+                0.0
+            }
+        };
+        let (pl, pr) = (panel(first, false), panel(last, true));
+        let mid = first.depth / 2.0;
+        let el = pl + if free(first, -pl - 2.0, mid) { s.worktop_end_overhang } else { 0.0 };
+        let er = pr + if free(last, last.width + pr + 2.0, mid) { s.worktop_end_overhang } else { 0.0 };
+        let _ = last_off;
+        t.start -= el;
+        t.len += el + er;
+    }
+
     // Trim overlaps at corners: earlier (longer-established) worktop wins.
     for j in 1..tops.len() {
         for i in 0..j {
@@ -688,7 +728,6 @@ fn build_worktops(project: &Project, out: &mut Build) {
         if t.len < 50.0 {
             continue;
         }
-        let th = s.worktop_thickness;
         // Cut-outs: drawing x along the worktop from its (trimmed) start,
         // y from the front edge.
         let mut cutouts = vec![];

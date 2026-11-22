@@ -98,6 +98,8 @@ pub struct Settings {
     pub worktop_thickness: f64,
     /// Worktop overhang past the fronts.
     pub worktop_overhang: f64,
+    /// Worktop overhang past a free-standing run end (beyond any end panel).
+    pub worktop_end_overhang: f64,
     /// Shaker stile/rail width.
     pub shaker_frame: f64,
     /// Shaker panel groove depth (also the rail tenon length).
@@ -132,6 +134,7 @@ impl Default for Settings {
             shelf_setback: 20.0,
             worktop_thickness: 38.0,
             worktop_overhang: 20.0,
+            worktop_end_overhang: 0.0,
             shaker_frame: 60.0,
             shaker_groove: 8.0,
             routed_depth: 6.0,
