@@ -3,7 +3,7 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { TransformControls } from "three/examples/jsm/controls/TransformControls.js";
 import init, * as cwWasm from "../pkg/casework_wasm.js";
 import wasmBytes from "../pkg/casework_wasm_bg.wasm";
-import { wallOf, walls as roomWalls, local as wallLocal, point as wallPoint, wallPieces, snapCorner, resizeWall } from "./room.js";
+import { wallOf, walls as roomWalls, local as wallLocal, point as wallPoint, wallPieces, snapCorner, resizeWall, moveWithWalls } from "./room.js";
 
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -586,6 +586,7 @@ function renderWallPanel(put) {
   const lenInput = h("input", { type: "number", step: "any", value: Math.round(w.len), onchange: () => {
     const L = parseFloat(lenInput.value); if (!(L > 50)) return;
     const r = resizeWall(project.room, i, L, lenAnchor);
+    moveWithWalls(project.room.walls, r.walls, project.cabinets);
     project.room.walls = r.walls; project.room.openings = r.openings;
     commitRoom();
   } });
@@ -1100,7 +1101,11 @@ function setup3d() {
     pts[i] = [x, z];
     buildRoom();
   });
-  window.addEventListener("pointerup", () => { if (vdrag) { vdrag = null; controls.enabled = true; commitRoom(); } });
+  window.addEventListener("pointerup", () => {
+    if (!vdrag) return;
+    moveWithWalls(vdrag.old, project.room.walls, project.cabinets);
+    vdrag = null; controls.enabled = true; commitRoom();
+  });
   (function loop() {
     requestAnimationFrame(loop);
     controls.update();
@@ -1199,7 +1204,7 @@ function buildRoom() {
     const n = room.walls.length;
     const fixed = selWall != null && ((lenAnchor === "start" && i === selWall) || (lenAnchor === "end" && i === (selWall + 1) % n));
     const hd = h("span", { class: "vhandle" + (fixed ? " fixed" : ""), title: "Drag corner" });
-    hd.addEventListener("pointerdown", (e) => { e.stopPropagation(); e.preventDefault(); vdrag = { i }; controls.enabled = false; });
+    hd.addEventListener("pointerdown", (e) => { e.stopPropagation(); e.preventDefault(); vdrag = { i, old: structuredClone(room.walls) }; controls.enabled = false; });
     ov.append(hd); overlayItems.push({ el: hd, pos: new THREE.Vector3(x, 0, z) });
   });
 }

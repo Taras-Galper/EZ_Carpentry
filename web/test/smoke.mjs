@@ -26,6 +26,16 @@ const { resizeWall } = await import("../src/room.js");
   ok("start", 4000, [[0, 0], [4000, 0], [4000, 2600], [0, 2600]], 1300);
   ok("end", 4000, [[-800, 0], [3200, 0], [3200, 2600], [-800, 2600]], 2100);
   ok("centre", 4000, [[-400, 0], [3600, 0], [3600, 2600], [-400, 2600]], 1700);
+  // cabinets follow: the run at the moved corner and the cabinets on the wall that slid
+  const { moveWithWalls } = await import("../src/room.js");
+  const cabs = [
+    { x: 0, z: 0, rotation: 0, width: 600, elevation: 0 }, { x: 2600, z: 0, rotation: 0, width: 600, elevation: 0 },
+    { x: 3200, z: 600, rotation: -90, width: 600, elevation: 0 },
+  ];
+  moveWithWalls(room.walls, resizeWall(room, 0, 3600, "start").walls, cabs);
+  const good = JSON.stringify(cabs.map((c) => [c.x, c.z])) === JSON.stringify([[0, 0], [3000, 0], [3600, 600]]);
+  console.log((good ? "ok   " : "FAIL ") + "cabinets move with their walls");
+  if (!good) process.exitCode = 1;
 }
 
 const exe = ["/usr/bin/google-chrome", "/usr/bin/chromium"].find((p) => fs.existsSync(p));

@@ -93,3 +93,50 @@ export function resizeWall(room, i, L, anchor = "start") {
   const openings = (room.openings || []).map((o) => (o.wall === i && ds ? { ...o, offset: Math.round((o.offset + ds) * 10) / 10 } : o));
   return { walls: P.map((p) => [Math.round(p[0] * 10) / 10, Math.round(p[1] * 10) / 10]), openings };
 }
+
+// After the room's corners change, carry cabinets along with their walls.
+// For each wall that kept its direction: every cabinet backed onto it moves
+// with the wall line, and the chain of cabinets that starts at a corner
+// that moved (first one within 60 mm of it, then touching neighbours)
+// slides with that corner. Cabinets on walls that turned stay put.
+// `cabinets` are mutated; returns how many were moved.
+export function moveWithWalls(oldWalls, newWalls, cabinets) {
+  const n = oldWalls.length;
+  if (n !== newWalls.length || n < 3) return 0;
+  const moved = new Set();
+  for (let i = 0; i < n; i++) {
+    const a = wallOf({ walls: oldWalls }, i), b = wallOf({ walls: newWalls }, i);
+    if (!a || !b || a.dir[0] * b.dir[0] + a.dir[1] * b.dir[1] < 0.9999) continue;
+    const ms = [b.start[0] - a.start[0], b.start[1] - a.start[1]], me = [b.end[0] - a.end[0], b.end[1] - a.end[1]];
+    if (Math.hypot(...ms) < 0.01 && Math.hypot(...me) < 0.01) continue;
+    const perp = ms[0] * a.normal[0] + ms[1] * a.normal[1]; // the wall line's shift into the room
+    const alongS = ms[0] * a.dir[0] + ms[1] * a.dir[1], alongE = me[0] * a.dir[0] + me[1] * a.dir[1];
+    const on = cabinets.filter((c) => {
+      if (moved.has(c) || Math.abs(((c.rotation - a.rotation + 540) % 360) - 180) > 0.5) return false;
+      const [t, s] = local(a, c.x, c.z);
+      return Math.abs(s) < 50 && t > -c.width && t < a.len;
+    }).map((c) => ({ c, t: local(a, c.x, c.z)[0] }));
+    // chains from each end, per height tier; a chain that runs corner to
+    // corner belongs to both ends and stays where it is
+    const shift = new Map(on.map((o) => [o.c, 0]));
+    for (const low of [true, false]) {
+      const tier = on.filter((o) => (o.c.elevation < 500) === low).sort((p, q) => p.t - q.t);
+      const fromS = new Set(), fromE = new Set();
+      let edge = 0;
+      for (const o of tier) { if (o.t - edge > 60) break; fromS.add(o.c); edge = o.t + o.c.width; }
+      edge = a.len;
+      for (const o of [...tier].reverse()) { if (edge - (o.t + o.c.width) > 60) break; fromE.add(o.c); edge = o.t; }
+      for (const o of tier) {
+        if (fromS.has(o.c) && !fromE.has(o.c)) shift.set(o.c, alongS);
+        if (fromE.has(o.c) && !fromS.has(o.c)) shift.set(o.c, alongE);
+      }
+    }
+    for (const { c } of on) {
+      const d = shift.get(c);
+      c.x = Math.round((c.x + a.normal[0] * perp + a.dir[0] * d) * 10) / 10;
+      c.z = Math.round((c.z + a.normal[1] * perp + a.dir[1] * d) * 10) / 10;
+      moved.add(c);
+    }
+  }
+  return moved.size;
+}
