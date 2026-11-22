@@ -278,3 +278,154 @@ text{{fill:#1f1d1a}}.ttl{{font-weight:700}}
     s.o.push_str("</svg>");
     s.o
 }
+
+/// Installer's elevation of one wall, seen from inside the room: every
+/// carcass, front and worktop within 700 mm of the wall projected onto it,
+/// with doors and windows, and dimension chains for cabinet widths,
+/// openings and heights. `None` when the room has no such wall.
+pub fn wall_svg(project: &Project, build: &Build, wi: usize) -> Option<String> {
+    let room = &project.room;
+    let w = room.wall(wi)?;
+    let len = w.len;
+    let rh = room.height.max(1000.0);
+    let fs = (len.max(rh) / 45.0).clamp(14.0, 50.0);
+    let m = fs * 7.0;
+    let title_h = fs * 4.0;
+    let (ox, oy) = (m, m + title_h + fs * 5.0); // wall's top-left corner in svg
+    let cw = ox + len + m;
+    let ch = oy + rh + fs * 13.0;
+    let tx = |t: f64| ox + t;
+    let vy = |y: f64| oy + rh - y;
+    let reach = 700.0;
+
+    // Project a cabinet-local box onto the wall: (t0, t1, y0, y1, s_near).
+    let project_box = |c: &Cabinet, b: &crate::parts::Box3| {
+        let [x0, y0, z0] = b.pos;
+        let [sx, sy, sz] = b.size;
+        let mut t = (f64::MAX, f64::MIN);
+        let mut s = (f64::MAX, f64::MIN);
+        for (x, z) in [(x0, z0), (x0 + sx, z0), (x0, z0 + sz), (x0 + sx, z0 + sz)] {
+            let (wx, wz) = crate::parts::to_world(c.x, c.z, c.rotation, x, z);
+            let (tt, ss) = w.local(wx, wz);
+            t = (t.0.min(tt), t.1.max(tt));
+            s = (s.0.min(ss), s.1.max(ss));
+        }
+        (t.0, t.1, c.elevation + y0, c.elevation + y0 + sy, s.0, s.1)
+    };
+    let near = |t0: f64, t1: f64, s0: f64, s1: f64| s0 < reach && s1 > -10.0 && t1 > 1.0 && t0 < len - 1.0;
+    let aligned = |c: &Cabinet| {
+        let dr = (c.rotation - w.rotation).rem_euclid(360.0);
+        let (t, s) = w.local(c.x, c.z);
+        (dr < 0.5 || dr > 359.5) && s.abs() < 50.0 && t > -1.0 && t < len + 1.0
+    };
+
+    // items: (s_near, class, t0, t1, y0, y1)
+    let mut items: Vec<(f64, &str, f64, f64, f64, f64)> = vec![];
+    for c in &project.cabinets {
+        for r in c.rects() {
+            let b = crate::parts::Box3 { pos: [r[0], 0.0, r[1]], size: [r[2] - r[0], c.height, r[3] - r[1]] };
+            let (t0, t1, y0, y1, s0, s1) = project_box(c, &b);
+            if near(t0, t1, s0, s1) {
+                let cls = if c.kind.is_carcass() { "carcass" } else { "ghost" };
+                items.push((s1 - 30.0, cls, t0, t1, y0, y1));
+            }
+        }
+    }
+    for p in build.parts.iter().filter(|p| matches!(p.role, Role::Front | Role::Worktop)) {
+        let Some(c) = project.cabinets.iter().find(|c| c.id == p.cabinet) else { continue };
+        for b in std::iter::once(&p.box3d).chain(p.more3d.iter()) {
+            let (t0, t1, y0, y1, s0, s1) = project_box(c, b);
+            if near(t0, t1, s0, s1) {
+                items.push((s1, class(p), t0, t1, y0, y1));
+            }
+        }
+    }
+    items.sort_by(|a, b| a.0.total_cmp(&b.0));
+
+    let mut s = Svg { o: String::new(), fs };
+    let _ = write!(
+        s.o,
+        r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {cw:.0} {ch:.0}" width="{:.0}mm" height="{:.0}mm" font-family="sans-serif">
+<style>
+rect,polygon{{stroke:#222;stroke-width:{lw:.2}}}
+.wall{{fill:#fafaf8}}.carcass{{fill:#f2f0ea}}.front{{fill:#d9c09c}}.top{{fill:#b8936b}}.back,.shelf,.drawer{{fill:none}}
+.ghost{{fill:none;stroke:#999;stroke-dasharray:{dash:.1}}}.opening{{fill:#e8f0f7;stroke:#6b8fb3;stroke-dasharray:{dash:.1}}}
+.dim{{stroke:#1d5fbf;stroke-width:{lw:.2}}}.ext{{stroke:#1d5fbf;stroke-width:{thin:.2};opacity:.6}}
+text{{fill:#1f1d1a}}
+</style>"##,
+        cw / 10.0,
+        ch / 10.0,
+        lw = fs / 12.0,
+        thin = fs / 20.0,
+        dash = fs / 3.0
+    );
+    s.text(m, m, &format!("Wall {} · {} mm", wi + 1, fmt(len)), "start", fs * 1.4, 0.0);
+    s.rect(tx(0.0), vy(rh), len, rh, "wall");
+    for o in room.openings.iter().filter(|o| o.wall == wi) {
+        s.rect(tx(o.offset), vy(o.sill + o.height), o.width, o.height, "opening");
+        let sill = if o.sill > 0.0 { format!(", sill {}", fmt(o.sill)) } else { String::new() };
+        let label = format!("{:?} {}×{}{}", o.kind, fmt(o.width), fmt(o.height), sill);
+        s.text(tx(o.offset + o.width / 2.0), vy(o.sill + o.height / 2.0), &label, "middle", fs * 0.8, 0.0);
+    }
+    for &(_, cls, t0, t1, y0, y1) in &items {
+        let (a, b) = (t0.max(0.0), t1.min(len));
+        if b - a > 0.5 {
+            s.rect(tx(a), vy(y1), b - a, y1 - y0, cls);
+        }
+    }
+    // cabinet labels on the aligned cabinets
+    for c in project.cabinets.iter().filter(|c| aligned(c)) {
+        let (t, _) = w.local(c.x, c.z);
+        s.text(tx(t + c.width / 2.0), vy(c.elevation + c.height) + fs * 1.3, &c.id, "middle", fs * 0.8, 0.0);
+    }
+
+    // ---------- dimension chains ----------
+    let chain = |s: &mut Svg, mut edges: Vec<f64>, y: f64, from: f64| {
+        edges.retain(|e| *e > -0.5 && *e < len + 0.5);
+        edges.push(0.0);
+        edges.push(len);
+        edges.sort_by(|a, b| a.total_cmp(b));
+        edges.dedup_by(|a, b| (*a - *b).abs() < 0.5);
+        for p in edges.windows(2) {
+            s.hdim(tx(p[0]), tx(p[1]), y, from);
+        }
+    };
+    let edges_of = |low: bool| -> Vec<f64> {
+        project
+            .cabinets
+            .iter()
+            .filter(|c| aligned(c) && ((c.elevation < 500.0) == low))
+            .flat_map(|c| {
+                let (t, _) = w.local(c.x, c.z);
+                [t, t + c.width]
+            })
+            .collect()
+    };
+    // base run below the floor, openings below that, overall last
+    chain(&mut s, edges_of(true), vy(0.0) + fs * 2.5, vy(0.0) + fs * 0.4);
+    let ops: Vec<f64> = room.openings.iter().filter(|o| o.wall == wi).flat_map(|o| [o.offset, o.offset + o.width]).collect();
+    if !ops.is_empty() {
+        chain(&mut s, ops, vy(0.0) + fs * 5.5, vy(0.0) + fs * 0.4);
+    }
+    s.hdim(tx(0.0), tx(len), vy(0.0) + fs * 8.5, vy(0.0) + fs * 0.4);
+    // wall units above the ceiling line
+    let up = edges_of(false);
+    if !up.is_empty() {
+        chain(&mut s, up, vy(rh) - fs * 2.5, vy(rh) - fs * 0.4);
+    }
+    // heights on the right: floor, worktop, wall-unit bottoms and tops, ceiling
+    let mut ys: Vec<f64> = vec![0.0, rh];
+    for &(_, cls, _, _, y0, y1) in &items {
+        if cls == "top" || cls == "carcass" {
+            ys.push(y0);
+            ys.push(y1);
+        }
+    }
+    ys.sort_by(|a, b| a.total_cmp(b));
+    ys.dedup_by(|a, b| (*a - *b).abs() < 5.0);
+    for p in ys.windows(2) {
+        s.vdim(vy(p[1]), vy(p[0]), tx(len) + fs * 3.0, tx(len) + fs * 0.4);
+    }
+    s.o.push_str("</svg>");
+    Some(s.o)
+}

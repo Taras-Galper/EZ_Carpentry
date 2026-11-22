@@ -675,6 +675,16 @@ function renderQuote() {
 function renderDrawings() {
   const v = $("#v-drawings"); v.replaceChildren();
   const json = JSON.stringify(project);
+  // Wall elevations first (or only the selected wall's); none when a cabinet is selected.
+  if (!selected) project.room.walls.forEach((_, i) => {
+    if (selWall != null && selWall !== i) return;
+    const svg = cw.export_one(json, "wall", i);
+    v.append(h("figure", { class: "wide" },
+      h("img", { src: "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg) }),
+      h("figcaption", {}, h("span", {}, `Wall ${i + 1}`),
+        h("button", { onclick: () => saveFile(`wall_${i + 1}.svg`, svg) }, "SVG"))));
+  });
+  if (selWall != null) return;
   project.cabinets.forEach((c, i) => {
     if (selected && c.id !== selected) return;
     if (!["base", "wall", "tall"].includes(c.kind)) return;

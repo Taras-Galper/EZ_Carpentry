@@ -279,6 +279,11 @@ pub fn packet_html(project: &Project, report: &Report, date: Option<&str>) -> St
     }
 
     // ---------- drawings ----------
+    for wi in 0..project.room.walls.len() {
+        if let Some(svg) = drawing::wall_svg(project, b, wi) {
+            let _ = write!(o, "<section><h2>Wall {}</h2><div class=drawing>{}</div></section>", wi + 1, svg);
+        }
+    }
     for c in project.cabinets.iter().filter(|c| c.kind.is_carcass()) {
         let _ = write!(
             o,

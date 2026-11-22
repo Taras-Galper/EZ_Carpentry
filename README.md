@@ -93,6 +93,7 @@ casework export kitchen.json --zip kitchen.zip
 | `sheets/*.dxf` | Nested sheet layouts, ready for CAM |
 | `sheets/*.svg` | Printable sheet layouts |
 | `drawings/*.svg` | Shop drawing per cabinet: front elevation, section, plan, dimensioned |
+| `drawings/wall-N.svg` | Installer's elevation of each wall: cabinets, fronts, worktop, doors and windows, chains of cabinet widths, openings and heights (also in the shop packet and the Drawings tab) |
 | `model.obj` | 3D model of all parts (mm, Y up) |
 | `nc/*.nc` | G-code per sheet (see below) |
 | `nc/face2/*.nc` | G-code for opposite-face pockets, per part |

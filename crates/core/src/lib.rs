@@ -853,4 +853,18 @@ mod tests {
             let _ = c;
         }
     }
+
+    #[test]
+    fn wall_elevations_show_their_cabinets() {
+        let p = sample_kitchen();
+        let r = compute(&p);
+        let w1 = export::drawing::wall_svg(&p, &r.build, 0).unwrap();
+        for id in ["t1", "d1", "b2", "b3", "w1", "w3"] {
+            assert!(w1.contains(&format!(">{id}</text>")), "{id} missing on wall 1");
+        }
+        assert!(w1.contains("Window 700"));
+        let w2 = export::drawing::wall_svg(&p, &r.build, 1).unwrap();
+        assert!(w2.contains(">b5</text>") && !w2.contains(">b2</text>"));
+        assert!(export::drawing::wall_svg(&p, &r.build, 9).is_none());
+    }
 }

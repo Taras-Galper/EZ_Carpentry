@@ -321,6 +321,11 @@ pub fn files_dated(project: &Project, report: &Report, date: Option<&str>) -> Ve
     for c in project.cabinets.iter().filter(|c| c.kind.is_carcass()) {
         files.push((format!("drawings/{}.svg", safe(&c.id)), drawing::cabinet_svg(project, b, c).into_bytes()));
     }
+    for wi in 0..project.room.walls.len() {
+        if let Some(svg) = drawing::wall_svg(project, b, wi) {
+            files.push((format!("drawings/wall-{}.svg", wi + 1), svg.into_bytes()));
+        }
+    }
     write_sheets(project, &report.nesting, &b.parts, &mut files);
     files
 }
