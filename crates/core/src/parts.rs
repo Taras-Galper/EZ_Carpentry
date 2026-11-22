@@ -346,6 +346,12 @@ pub fn build(project: &Project) -> Build {
     if project.settings.plinth_runs {
         build_plinths(project, &mut out);
     }
+    if project.settings.cornice > 0.0 {
+        build_trim(project, &mut out, Trim::Cornice);
+    }
+    if project.settings.light_rail > 0.0 {
+        build_trim(project, &mut out, Trim::LightRail);
+    }
     out
 }
 
@@ -353,6 +359,138 @@ pub fn build(project: &Project) -> Build {
 /// up (same rotation, back line, plinth height and plinth front), split
 /// into equal lengths when longer than a board. Free ends without an end
 /// panel get a return back to the wall line.
+#[derive(Clone, Copy, PartialEq)]
+enum Trim {
+    Cornice,
+    LightRail,
+}
+
+/// Cornice on top of, or light rail under, each straight run of upper
+/// cabinets whose tops (or bottoms) and fronts line up: a board in the front
+/// material flush with the doors, wrapping round free ends with returns.
+fn build_trim(project: &Project, out: &mut Build, kind: Trim) {
+    let s = &project.settings;
+    let th = if kind == Trim::Cornice { s.cornice } else { s.light_rail };
+    let r2 = |v: f64| (v * 2.0).round() / 2.0;
+    let level = |c: &Cabinet| if kind == Trim::Cornice { c.elevation + c.height } else { c.elevation };
+    let mut cabs: Vec<(&Cabinet, f64, f64)> = project
+        .cabinets
+        .iter()
+        .filter(|c| match kind {
+            Trim::Cornice => matches!(c.kind, CabinetKind::Wall | CabinetKind::Tall),
+            Trim::LightRail => c.kind == CabinetKind::Wall,
+        })
+        .filter(|c| !c.is_diagonal())
+        .map(|c| {
+            let (sn, cs) = c.rotation.to_radians().sin_cos();
+            (c, c.x * cs - c.z * sn, r2(c.x * sn + c.z * cs))
+        })
+        .collect();
+    let key = |c: &Cabinet, across: f64| (r2(c.rotation.rem_euclid(360.0)), across, r2(level(c)), r2(c.depth));
+    cabs.sort_by(|a, b| (key(a.0, a.2), a.1).partial_cmp(&(key(b.0, b.2), b.1)).unwrap_or(std::cmp::Ordering::Equal));
+    let mut runs: Vec<Vec<(&Cabinet, f64)>> = vec![];
+    let mut last = None;
+    for (c, along, across) in cabs {
+        let k = key(c, across);
+        if let (Some(r), Some(lk)) = (runs.last_mut(), last) {
+            let (p, pa): (&Cabinet, f64) = r[r.len() - 1];
+            if lk == k && (along - (pa + p.width)).abs() < 1.0 {
+                r.push((c, along));
+                continue;
+            }
+        }
+        last = Some(k);
+        runs.push(vec![(c, along)]);
+    }
+    let walls = project.room.walls();
+    // Nothing at this height (wall or cabinet) right beside a run end.
+    let free = |c: &Cabinet, lx: f64, lz: f64, y: f64| -> bool {
+        let (wx, wz) = to_world(c.x, c.z, c.rotation, lx, lz);
+        let by_cab = project.cabinets.iter().any(|o| {
+            if o.elevation > y + 1.0 || o.elevation + o.height < y - 1.0 {
+                return false;
+            }
+            let (x, z) = to_local(o.x, o.z, o.rotation, wx, wz);
+            o.rects().iter().any(|r| x > r[0] - 0.5 && x < r[2] + 0.5 && z > r[1] - 0.5 && z < r[3] + 0.5)
+        });
+        let by_wall = walls.iter().any(|w| {
+            let (t, s2) = w.local(wx, wz);
+            s2 > -200.0 && s2 < 40.0 && t > -1.0 && t < w.len + 1.0
+        });
+        !by_cab && !by_wall
+    };
+    let (key0, name) = if kind == Trim::Cornice { ("cornice", "Cornice") } else { ("lightrail", "Light rail") };
+    for r in runs {
+        let start = out.parts.len();
+        let (first, a0) = r[0];
+        let (lastc, a1) = r[r.len() - 1];
+        let len = a1 + lastc.width - a0;
+        let fm = project.material(&first.front_material);
+        let ft = fm.thickness;
+        let d = first.depth;
+        let y = if kind == Trim::Cornice { first.height } else { -th }; // cabinet-local
+        let probe_y = if kind == Trim::Cornice { level(first) - 10.0 } else { level(first) + 10.0 };
+        // outside any end panels, then the return boards
+        let pl = if first.end_left { ft } else { 0.0 };
+        let pr = if lastc.end_right { ft } else { 0.0 };
+        let fl = free(first, -pl - 30.0, d / 2.0, probe_y);
+        let fr = free(lastc, lastc.width + pr + 30.0, d / 2.0, probe_y);
+        let x0 = -pl - if fl { ft } else { 0.0 };
+        let x1 = len + pr + if fr { ft } else { 0.0 };
+        let max = (fm.sheet_length - 2.0 * s.sheet_trim).max(500.0);
+        let n = ((x1 - x0) / max).ceil().max(1.0) as usize;
+        let piece = (x1 - x0) / n as f64;
+        for k in 0..n {
+            let key = if n == 1 { key0.to_string() } else { format!("{key0}{}", k + 1) };
+            let label = if n == 1 { name.to_string() } else { format!("{name} {}/{}", k + 1, n) };
+            push_part(
+                out,
+                first,
+                &key,
+                &label,
+                Role::Front,
+                &fm,
+                piece,
+                th,
+                [true, false, true, false],
+                Box3 { pos: [x0 + piece * k as f64, y, d], size: [piece, th, ft] },
+            );
+        }
+        if fl {
+            push_part(
+                out,
+                first,
+                &format!("{key0}-rl"),
+                &format!("{name} return L"),
+                Role::Front,
+                &fm,
+                d,
+                th,
+                [true, false, true, false],
+                Box3 { pos: [x0, y, 0.0], size: [ft, th, d] },
+            );
+        }
+        if fr {
+            push_part(
+                out,
+                first,
+                &format!("{key0}-rr"),
+                &format!("{name} return R"),
+                Role::Front,
+                &fm,
+                d,
+                th,
+                [true, false, true, false],
+                Box3 { pos: [x1 - ft, y, 0.0], size: [ft, th, d] },
+            );
+        }
+        let shares: Vec<(String, f64)> = r.iter().map(|(c, _)| (c.id.clone(), c.width / len)).collect();
+        for p in &mut out.parts[start..] {
+            p.shared = shares.clone();
+        }
+    }
+}
+
 fn build_plinths(project: &Project, out: &mut Build) {
     let s = &project.settings;
     let r2 = |v: f64| (v * 2.0).round() / 2.0;

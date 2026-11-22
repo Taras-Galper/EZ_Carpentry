@@ -492,6 +492,7 @@ function renderProps() {
         field("Back", s, "back_mode", "select", [["applied", "Applied"], ["grooved", "In groove"]]),
         field("Plinth", s, "plinth", "select", [["board", "Toe-kick board"], ["legs", "Legs + plinth"]]),
         field("Plinth per run", s, "plinth_runs", "check"),
+        field("Cornice", s, "cornice"), field("Light rail", s, "light_rail"),
         s.back_mode === "grooved" ? field("Back inset", s, "back_inset") : null,
         field("Groove depth", s, "groove_depth")),
       h("h3", {}, "Room"),
@@ -632,6 +633,11 @@ function renderMultiPanel(put) {
       h("button", { onclick: () => { const g = gid("group"); for (const c of cs) c.group = g; recompute(); } }, "Group"),
       grouped ? h("button", { onclick: () => { for (const c of cs) c.group = ""; recompute(); } }, "Ungroup") : null,
       h("button", { onclick: () => duplicateSelection(cs) }, "Duplicate")),
+    h("h3", {}, "Align"),
+    h("div", { class: "row" },
+      h("button", { onclick: () => { const top = Math.max(...cs.map((c) => c.elevation + c.height)); for (const c of cs) c.elevation = Math.max(0, top - c.height); recompute(); } }, "Tops"),
+      h("button", { onclick: () => { const lo = Math.min(...cs.map((c) => c.elevation)); for (const c of cs) c.elevation = lo; recompute(); } }, "Bottoms"),
+      h("button", { title: "Close the gaps between them along the first one's wall", onclick: () => closeGaps(cs) }, "Close gaps")),
     h("h3", {}, "Set for all"),
     h("div", { class: "grid2" },
       h("label", {}, h("span", {}, "Front style"), h("select", { onchange: (e) => { for (const c of cs) c.door_style = e.target.value; recompute(); } },
@@ -640,6 +646,20 @@ function renderMultiPanel(put) {
         h("option", { value: "", disabled: true, selected: new Set(cs.map((c) => c.front_material)).size > 1 }, "—"),
         ...project.materials.map((m) => h("option", { value: m.id, selected: cs.every((c) => c.front_material === m.id) }, m.name))))),
   );
+}
+// Slide the selected cabinets (same rotation) together along their axis,
+// keeping the left-most one where it is.
+function closeGaps(cs) {
+  const r = cs[0].rotation, same = cs.filter((c) => Math.abs(((c.rotation - r + 540) % 360) - 180) < 0.5);
+  if (same.length < 2) { toast("Select cabinets facing the same way"); return; }
+  const rad = THREE.MathUtils.degToRad(r), dir = [Math.cos(rad), -Math.sin(rad)];
+  const along = (c) => c.x * dir[0] + c.z * dir[1];
+  same.sort((a, b) => along(a) - along(b));
+  for (let k = 1; k < same.length; k++) {
+    const p = same[k - 1], c = same[k], gap = along(c) - (along(p) + p.width);
+    c.x = Math.round((c.x - dir[0] * gap) * 10) / 10; c.z = Math.round((c.z - dir[1] * gap) * 10) / 10;
+  }
+  recompute();
 }
 // Copies placed beside the selection (to its right along x), selected.
 function duplicateSelection(cs) {

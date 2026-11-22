@@ -159,6 +159,10 @@ pub struct Settings {
     /// One plinth board per run of floor cabinets (with returns at free
     /// ends) instead of a toe kick under each cabinet.
     pub plinth_runs: bool,
+    /// Cornice board height on top of upper-cabinet runs (0 = none).
+    pub cornice: f64,
+    /// Light rail height under wall-cabinet runs (0 = none).
+    pub light_rail: f64,
     /// Grooved back: distance from the carcass back edge to the groove.
     pub back_inset: f64,
     /// Depth of back-panel and drawer-bottom grooves.
@@ -186,6 +190,8 @@ impl Default for Settings {
             worktop_overhang: 20.0,
             worktop_end_overhang: 0.0,
             plinth_runs: true,
+            cornice: 0.0,
+            light_rail: 0.0,
             shaker_frame: 60.0,
             shaker_groove: 8.0,
             routed_depth: 6.0,

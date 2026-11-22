@@ -1191,4 +1191,30 @@ mod tests {
             assert!(obj.contains("o wl_Top"));
         }
     }
+
+    #[test]
+    fn cornice_and_light_rail() {
+        let mut p = sample_kitchen();
+        p.settings.cornice = 60.0;
+        p.settings.light_rail = 40.0;
+        let r = compute(&p);
+        assert!(r.build.warnings.is_empty(), "{:?}", r.build.warnings);
+        let get = |id: &str| r.build.parts.iter().find(|q| q.id == id);
+        // w1 sits against the tall pantry (closed left end) with a free right end
+        let c = get("w1-cornice").unwrap();
+        assert_eq!(c.w, 600.0 + 19.0);
+        assert_eq!(c.box3d.pos[1], 720.0); // cabinet-local: on top
+        assert!(get("w1-cornice-rr").is_some() && get("w1-cornice-rl").is_none());
+        assert_eq!(get("w1-cornice-rr").unwrap().w, 320.0);
+        // light rail under it, same returns
+        let l = get("w1-lightrail").unwrap();
+        assert_eq!(l.box3d.pos[1], -40.0); // just under the bottom
+        assert!(get("w1-lightrail-rr").is_some());
+        // the tall pantry has its own cornice; no light rail
+        assert!(get("f1-cornice").is_some() || get("t1-cornice").is_some());
+        assert!(get("t1-lightrail").is_none() && get("f1-lightrail").is_none());
+        // off by default
+        let r0 = compute(&sample_kitchen());
+        assert!(!r0.build.parts.iter().any(|q| q.id.contains("cornice") || q.id.contains("lightrail")));
+    }
 }
