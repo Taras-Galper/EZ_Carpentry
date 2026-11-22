@@ -96,6 +96,10 @@ pub struct Part {
     /// non-rectangular parts; `edges` covers rectangles.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub band_segs: Vec<usize>,
+    /// Part serving several cabinets (run plinths): (cabinet id, share of
+    /// its cost). Empty = belongs to `cabinet` alone.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub shared: Vec<(String, f64)>,
 }
 
 /// Rounded-rectangle through cut-out, drawing frame.
@@ -276,6 +280,7 @@ impl Ctx<'_> {
             box3d,
             more3d: vec![],
             band_segs: vec![],
+            shared: vec![],
         });
         self.out.parts.len() - 1
     }
@@ -324,7 +329,147 @@ pub fn build(project: &Project) -> Build {
         build_cabinet(project, cab, &mut out);
     }
     build_worktops(project, &mut out);
+    if project.settings.plinth_runs {
+        build_plinths(project, &mut out);
+    }
     out
+}
+
+/// One plinth per straight run of floor cabinets whose plinth fronts line
+/// up (same rotation, back line, plinth height and plinth front), split
+/// into equal lengths when longer than a board. Free ends without an end
+/// panel get a return back to the wall line.
+fn build_plinths(project: &Project, out: &mut Build) {
+    let s = &project.settings;
+    let r2 = |v: f64| (v * 2.0).round() / 2.0;
+    let mut cabs: Vec<(&Cabinet, f64, f64)> = project
+        .cabinets
+        .iter()
+        .filter(|c| c.on_run_plinth())
+        .map(|c| {
+            let (sn, cs) = c.rotation.to_radians().sin_cos();
+            (c, c.x * cs - c.z * sn, r2(c.x * sn + c.z * cs))
+        })
+        .collect();
+    let front = |c: &Cabinet| r2(c.depth - c.toe_kick_depth.clamp(0.0, c.depth * 0.5));
+    let key = |c: &Cabinet, across: f64| (r2(c.rotation.rem_euclid(360.0)), across, r2(c.toe_kick_height), front(c));
+    cabs.sort_by(|a, b| (key(a.0, a.2), a.1).partial_cmp(&(key(b.0, b.2), b.1)).unwrap_or(std::cmp::Ordering::Equal));
+    let mut runs: Vec<Vec<(&Cabinet, f64)>> = vec![];
+    let mut last = None;
+    for (c, along, across) in cabs {
+        let k = key(c, across);
+        if let (Some(r), Some(lk)) = (runs.last_mut(), last) {
+            let (p, pa): (&Cabinet, f64) = r[r.len() - 1];
+            if lk == k && (along - (pa + p.width)).abs() < 1.0 {
+                r.push((c, along));
+                continue;
+            }
+        }
+        last = Some(k);
+        runs.push(vec![(c, along)]);
+    }
+    let walls = project.room.walls();
+    // Nothing (wall or cabinet on the floor) right beside a run end.
+    let free = |c: &Cabinet, lx: f64, lz: f64| -> bool {
+        let (wx, wz) = to_world(c.x, c.z, c.rotation, lx, lz);
+        let by_cab = project.cabinets.iter().any(|o| {
+            if o.elevation > 50.0 {
+                return false;
+            }
+            let (x, z) = to_local(o.x, o.z, o.rotation, wx, wz);
+            o.rects().iter().any(|r| x > r[0] - 0.5 && x < r[2] + 0.5 && z > r[1] - 0.5 && z < r[3] + 0.5)
+        });
+        let by_wall = walls.iter().any(|w| {
+            let (t, s2) = w.local(wx, wz);
+            s2 > -200.0 && s2 < 40.0 && t > -1.0 && t < w.len + 1.0 // close to a wall, or just behind it
+        });
+        !by_cab && !by_wall
+    };
+    for r in runs {
+        let start = out.parts.len();
+        let (first, a0) = r[0];
+        let (lastc, a1) = r[r.len() - 1];
+        let len = a1 + lastc.width - a0;
+        let cm = project.material(&first.carcass_material);
+        let t = cm.thickness;
+        let toe = first.toe_kick_height;
+        let zf = front(first); // plinth front face, first cabinet's local z
+        let name = if s.plinth == Plinth::Legs { "Plinth" } else { "Toe kick" };
+        let max = (cm.sheet_length - 2.0 * s.sheet_trim).max(500.0);
+        let n = (len / max).ceil().max(1.0) as usize;
+        let piece = len / n as f64;
+        for k in 0..n {
+            let key = if n == 1 { "plinth".to_string() } else { format!("plinth{}", k + 1) };
+            let label = if n == 1 { name.to_string() } else { format!("{name} {}/{}", k + 1, n) };
+            push_part(
+                out,
+                first,
+                &key,
+                &label,
+                Role::Carcass,
+                &cm,
+                piece,
+                toe,
+                [false, false, true, false],
+                Box3 { pos: [piece * k as f64, 0.0, zf - t], size: [piece, toe, t] },
+            );
+        }
+        // returns: from the back of the plinth to 20 mm off the back line; ends
+        // within 30 mm of a wall or cabinet count as closed
+        let rl = zf - t - 20.0;
+        let mid = zf / 2.0;
+        if rl > 50.0 {
+            if !first.end_left && free(first, -30.0, mid) {
+                push_part(
+                    out,
+                    first,
+                    "plinth-rl",
+                    &format!("{name} return L"),
+                    Role::Carcass,
+                    &cm,
+                    rl,
+                    toe,
+                    [false, false, true, false],
+                    Box3 { pos: [0.0, 0.0, 20.0], size: [t, toe, rl] },
+                );
+            }
+            if !lastc.end_right && free(lastc, lastc.width + 30.0, mid) {
+                push_part(
+                    out,
+                    first,
+                    "plinth-rr",
+                    &format!("{name} return R"),
+                    Role::Carcass,
+                    &cm,
+                    rl,
+                    toe,
+                    [false, false, true, false],
+                    Box3 { pos: [len - t, 0.0, 20.0], size: [t, toe, rl] },
+                );
+            }
+        }
+        let shares: Vec<(String, f64)> = r.iter().map(|(c, _)| (c.id.clone(), c.width / len)).collect();
+        for p in &mut out.parts[start..] {
+            p.shared = shares.clone();
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn push_part(
+    out: &mut Build,
+    cab: &Cabinet,
+    key: &str,
+    name: &str,
+    role: Role,
+    mat: &Material,
+    w: f64,
+    h: f64,
+    edges: [bool; 4],
+    box3d: Box3,
+) {
+    let mut cx = Ctx { cab, out };
+    cx.part(key, name, role, mat, w, h, false, edges, box3d);
 }
 
 /// Replace slab fronts from `start` on with five-piece Shaker fronts
@@ -381,7 +526,7 @@ fn build_special(project: &Project, cab: &Cabinet, out: &mut Build) {
         return;
     }
     let toe_board = |cx: &mut Ctx| {
-        if toe > 0.0 && cab.kind != CabinetKind::Appliance {
+        if toe > 0.0 && cab.kind != CabinetKind::Appliance && !(s.plinth_runs && cab.on_run_plinth()) {
             cx.part(
                 "toe",
                 "Toe kick",
@@ -514,6 +659,7 @@ fn shaker_pieces(p: Part, f: f64, g: f64, pm: &Material) -> Vec<Part> {
         box3d: b,
         more3d: vec![],
         band_segs: vec![],
+        shared: vec![],
     };
     let fm = Material { id: p.material.clone(), thickness: p.thickness, ..Material::default() };
     let rail_len = w - 2.0 * f + 2.0 * g;
@@ -847,6 +993,7 @@ fn build_worktops(project: &Project, out: &mut Build) {
             box3d,
             more3d: vec![],
             band_segs: vec![],
+            shared: vec![],
         });
         if t.len > tm.sheet_length - 2.0 * s.sheet_trim {
             out.warnings.push(format!("Worktop over {} is {:.0} mm, longer than the {} blank", t.ids, t.len, tm.name));
@@ -1226,7 +1373,7 @@ fn build_carcass(project: &Project, cab: &Cabinet, out: &mut Build) {
             }
         }
     }
-    if toe > 0.0 {
+    if toe > 0.0 && !(s.plinth_runs && cab.on_run_plinth()) {
         cx.part(
             "toe",
             if legs { "Plinth" } else { "Toe kick" },

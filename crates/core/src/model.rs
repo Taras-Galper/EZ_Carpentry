@@ -109,6 +109,9 @@ pub struct Settings {
     pub joinery: Joinery,
     pub back_mode: BackMode,
     pub plinth: Plinth,
+    /// One plinth board per run of floor cabinets (with returns at free
+    /// ends) instead of a toe kick under each cabinet.
+    pub plinth_runs: bool,
     /// Grooved back: distance from the carcass back edge to the groove.
     pub back_inset: f64,
     /// Depth of back-panel and drawer-bottom grooves.
@@ -135,6 +138,7 @@ impl Default for Settings {
             worktop_thickness: 38.0,
             worktop_overhang: 20.0,
             worktop_end_overhang: 0.0,
+            plinth_runs: true,
             shaker_frame: 60.0,
             shaker_groove: 8.0,
             routed_depth: 6.0,
@@ -203,6 +207,14 @@ impl CabinetKind {
 }
 
 impl Cabinet {
+    /// Stands on the floor on a plinth that joins its neighbours' (run plinths).
+    pub fn on_run_plinth(&self) -> bool {
+        self.elevation == 0.0
+            && self.toe_kick_height > 0.0
+            && !self.is_l()
+            && matches!(self.kind, CabinetKind::Base | CabinetKind::Tall | CabinetKind::Dishwasher | CabinetKind::Filler)
+    }
+
     pub fn is_l(&self) -> bool {
         self.corner == Corner::L && self.kind.is_carcass()
     }

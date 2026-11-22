@@ -137,6 +137,7 @@ Frameless / System 32, full-overlay fronts. Parts are drawn inside face up (hing
 - Dishwasher: integrated decor panel (slab or Shaker) and toe kick; the machine is shown in 3D but not cut. Joins worktop runs.
 - Appliance space (fridge, freestanding oven): holds the space, cuts nothing, not charged. Under-worktop height (< 1000 mm on the floor) joins worktop runs; taller ones end them.
 - Filler: front-material strip plus toe kick; joins worktop runs when under-worktop height.
+- Plinth per run (Project, on by default): one board under each straight run of floor cabinets whose plinth fronts line up, split into equal lengths when longer than a sheet; a return back to the wall line at free ends without an end panel (ends within 30 mm of a wall or cabinet count as closed). Its cost is shared across the run in the quote. L corners keep their own two pieces. Off: a toe kick under each cabinet.
 - Plinth (Project): toe-kick board fixed to notched sides, or legs + plinth — sides stop above the plinth (holes move with them), 4 adjustable legs (6 over 900 mm wide) and 2 plinth clips per cabinet.
 - Wardrobe (tall cabinet, Hanging rail): fixed hat shelf (hat-shelf gap below the top), joined like a bottom; Ø25 rail 60 mm under it with two supports; adjustable shelves go below the hat shelf.
 - Finished back (islands): front-material panel over the back, covering end panels too.

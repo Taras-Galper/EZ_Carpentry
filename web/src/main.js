@@ -466,6 +466,7 @@ function renderProps() {
         field("Joinery", s, "joinery", "select", [["confirmat", "Confirmat"], ["dowel", "Dowel"]]),
         field("Back", s, "back_mode", "select", [["applied", "Applied"], ["grooved", "In groove"]]),
         field("Plinth", s, "plinth", "select", [["board", "Toe-kick board"], ["legs", "Legs + plinth"]]),
+        field("Plinth per run", s, "plinth_runs", "check"),
         s.back_mode === "grooved" ? field("Back inset", s, "back_inset") : null,
         field("Groove depth", s, "groove_depth")),
       h("h3", {}, "Room"),

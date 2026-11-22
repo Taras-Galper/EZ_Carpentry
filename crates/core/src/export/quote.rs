@@ -167,9 +167,18 @@ pub fn quote(project: &Project, report: &Report) -> Quote {
         *c += hrs * pr.labor_rate;
     }
     for (i, p) in b.parts.iter().enumerate() {
-        if p.role != Role::Worktop {
+        if p.role == Role::Worktop {
+            continue;
+        }
+        if p.shared.is_empty() {
             if let Some(ci) = cab_idx(&p.cabinet) {
                 cab_cost[ci] += part_cost[i];
+            }
+        } else {
+            for (id, share) in &p.shared {
+                if let Some(ci) = cab_idx(id) {
+                    cab_cost[ci] += part_cost[i] * share;
+                }
             }
         }
     }

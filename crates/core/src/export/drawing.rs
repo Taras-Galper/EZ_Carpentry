@@ -93,7 +93,8 @@ fn front_hole(p: &Part, hx: f64, hy: f64) -> (f64, f64) {
 }
 
 pub fn cabinet_svg(project: &Project, build: &Build, cab: &Cabinet) -> String {
-    let parts: Vec<&Part> = build.parts.iter().filter(|p| p.cabinet == cab.id && p.role != Role::Worktop).collect();
+    // run parts (shared plinths) span other cabinets: not in a single cabinet's drawing
+    let parts: Vec<&Part> = build.parts.iter().filter(|p| p.cabinet == cab.id && p.role != Role::Worktop && p.shared.is_empty()).collect();
     let (w, h, d) = (cab.width, cab.height, cab.depth);
     let ft = parts.iter().filter(|p| p.role == Role::Front).map(|p| p.thickness).fold(0.0, f64::max);
     let dd = d + ft; // depth including fronts

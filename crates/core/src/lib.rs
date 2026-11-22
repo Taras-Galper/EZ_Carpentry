@@ -398,7 +398,7 @@ mod tests {
         let r = compute(&p);
         assert!(r.build.warnings.is_empty(), "{:?}", r.build.warnings);
         let f1: Vec<_> = r.build.parts.iter().filter(|q| q.cabinet == "f9").collect();
-        assert_eq!(f1.len(), 2, "strip + toe kick");
+        assert_eq!(f1.len(), 1, "strip; its toe kick is part of the run plinth");
         assert!(r.build.parts.iter().all(|q| q.cabinet != "a1"), "appliance space cuts nothing");
         // filler (under-worktop height) extends the back worktop; the tall fridge space does not
         let back = r.build.parts.iter().find(|q| q.id == "d1-worktop").unwrap();
@@ -593,7 +593,7 @@ mod tests {
         let side = get("b4-side-l");
         assert_eq!(side.outline.len(), 4);
         assert_eq!(side.h, 870.0 - 100.0);
-        assert_eq!(get("b4-toe").name, "Plinth");
+        assert_eq!(get("b4-plinth").name, "Plinth");
         assert!(r.build.hardware.iter().any(|h| h.cabinet == "b4" && h.name.starts_with("Adjustable leg") && h.qty == 4));
         // wardrobe: hat shelf 300 below the top, rail hardware
         let hat = get("t1-hat");
@@ -957,5 +957,39 @@ mod tests {
         // run ends at the front wall (z = 2600): overhang only at the free end near z = 1000
         assert_eq!(t.w, 1600.0 + 20.0);
         assert_eq!(t.box3d.pos[0], -20.0);
+    }
+
+    #[test]
+    fn run_plinths() {
+        let p = sample_kitchen();
+        let r = compute(&p);
+        assert!(r.build.warnings.is_empty(), "{:?}", r.build.warnings);
+        assert!(!r.build.parts.iter().any(|q| q.id.ends_with("-toe")), "no per-cabinet toe kicks");
+        let get = |id: &str| r.build.parts.iter().find(|q| q.id == id);
+        // return leg b4+b5+b6: one board, a return at the free end (b6 has an end panel: none)
+        let leg = get("b4-plinth").unwrap();
+        assert_eq!(leg.w, 1500.0);
+        assert_eq!(leg.shared.len(), 3);
+        assert!(get("b4-plinth-rr").is_none() && get("b4-plinth-rl").is_none());
+        // without b6's end panel the free end gets a return
+        let mut p2 = p.clone();
+        p2.cabinets.iter_mut().find(|c| c.id == "b6").unwrap().end_right = false;
+        let r2 = compute(&p2);
+        let ret = r2.build.parts.iter().find(|q| q.id == "b4-plinth-rr").unwrap();
+        assert_eq!(ret.w, 560.0 - 60.0 - 18.0 - 20.0);
+        // per-cabinet toe kicks when switched off
+        let mut p3 = p.clone();
+        p3.settings.plinth_runs = false;
+        let r3 = compute(&p3);
+        assert!(r3.build.parts.iter().any(|q| q.id == "b4-toe"));
+        assert!(!r3.build.parts.iter().any(|q| q.id.contains("-plinth")));
+        // a run longer than a board is split evenly
+        let mut p4 = p.clone();
+        p4.room = crate::room::Room::rectangle(9000.0, 2600.0);
+        p4.cabinets = (0..10).map(|k| Cabinet { id: format!("c{k}"), x: 100.0 + 600.0 * k as f64, ..Cabinet::default() }).collect();
+        let r4 = compute(&p4);
+        let pieces: Vec<_> = r4.build.parts.iter().filter(|q| q.id.starts_with("c0-plinth") && !q.id.contains("-r")).collect();
+        assert_eq!(pieces.len(), 3);
+        assert!(pieces.iter().all(|q| (q.w - 2000.0).abs() < 0.1));
     }
 }
