@@ -59,6 +59,34 @@ for (const engine of ["wasm", "js"]) {
   await page.close();
 }
 
+// Snap: drag a cabinet near the back wall in Plan; it lands flush, beside its neighbour,
+// and the gap chip shows while dragging.
+{
+  const page = await browser.newPage({ viewport: { width: 1500, height: 900 } });
+  await page.goto(url);
+  await page.waitForFunction(() => window.ezCarpentry?.project);
+  await page.click("text=New").catch(() => {});
+  await page.waitForTimeout(300);
+  const n0 = await page.evaluate(() => window.ezCarpentry.project.cabinets.length);
+  if (n0 === 0) {
+    await page.click('[data-add="Base"]'); await page.click('[data-add="Base"]');
+    await page.click('[data-view="plan"]'); await page.waitForTimeout(400);
+    const p0 = await page.evaluate(() => { const c = window.ezCarpentry.project.cabinets[1]; return window.ezCarpentry.worldToScreen(c.x + 450, 700, c.z + 400); });
+    const room = await page.evaluate(() => window.ezCarpentry.project.room.walls.length);
+    const p1 = await page.evaluate(() => window.ezCarpentry.worldToScreen(1700, 400, 450));
+    await page.mouse.move(p0.x, p0.y); await page.mouse.down();
+    await page.mouse.move(p1.x, p1.y, { steps: 15 });
+    const chip = await page.locator(".snapchip").count();
+    await page.mouse.up(); await page.waitForTimeout(300);
+    const cabs = await page.evaluate(() => window.ezCarpentry.project.cabinets.map((c) => [c.x, c.z]).sort((a, b) => a[0] - b[0]));
+    if (room >= 3) {
+      check(chip === 1, "snap chip while dragging");
+      check(cabs[1][1] === 0 && cabs[1][0] === cabs[0][0] + 600, `dragged cabinet flush and beside its neighbour ${JSON.stringify(cabs)}`);
+    } else console.log("skip snap check: new project has no room");
+  } else console.log("skip snap check: New did not empty the project");
+  await page.close();
+}
+
 const phone = await browser.newContext({ ...pw.devices["iPhone 13"] });
 const pp = await phone.newPage();
 await pp.goto(url);

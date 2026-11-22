@@ -981,7 +981,13 @@ function setup3d() {
     if (e.value) return;
     const c = project.cabinets.find((c) => c.id === selected);
     if (!c) return;
-    const [x, z] = originFromProxy(c);
+    let [x, z] = originFromProxy(c);
+    // magnet: a back left within 40 mm of a wall it faces away from goes flush
+    for (const w of roomWalls(project.room)) {
+      if (Math.abs(((c.rotation - w.rotation + 540) % 360) - 180) > 0.5) continue;
+      const [t, sd] = wallLocal(w, x, z);
+      if (Math.abs(sd) > 0.05 && Math.abs(sd) < 40 && t > -c.width && t < w.len) { x -= w.normal[0] * sd; z -= w.normal[1] * sd; toast(`Snapped to wall ${w.i + 1}`); break; }
+    }
     placeCabinet(c, Math.round(x * 10) / 10, Math.round(z * 10) / 10, Math.max(0, Math.round(gizmoProxy.position.y * 10) / 10));
     recompute();
   });
@@ -1050,11 +1056,13 @@ function setup3d() {
     if (view === "front") { z = drag.c.z; rot = drag.c.rotation; }
     drag.x = x; drag.z = z; drag.rot = rot;
     previewGroup(drag.c, x, z, drag.c.elevation, rot);
+    showSnapCue(drag.c.group ? null : wallSnap);
     $("#coords").textContent = `${drag.c.id}  x ${x}  z ${z}`;
   });
   el.addEventListener("pointerup", (e) => {
     const d = drag; drag = null;
     controls.enabled = true;
+    if (d?.moved) showSnapCue(null);
     $("#coords").textContent = "";
     if (!d) return;
     if (d.drawing) {
@@ -1139,10 +1147,10 @@ function placeOverlay() {
   const host = $("#v-3d"), W = host.clientWidth, H = host.clientHeight, v = new THREE.Vector3();
   drawPreview((x, z) => { v.set(x, 0, z).project(camera); return { x: ((v.x + 1) / 2) * W, y: ((1 - v.y) / 2) * H }; });
   for (const it of overlayItems) {
-    const on = view === "plan" && !drawing;
+    v.copy(it.pos).project(camera);
+    const on = (it.always || view === "plan") && !drawing && v.z < 1;
     it.el.hidden = !on;
     if (!on) continue;
-    v.copy(it.pos).project(camera);
     it.el.style.transform = `translate(${((v.x + 1) / 2) * W}px, ${((1 - v.y) / 2) * H}px) translate(-50%, -50%)`;
   }
 }
@@ -1208,30 +1216,46 @@ function footprint(c, ox = c.x, oz = c.z, rot = c.rotation) {
 // along it snapping to the wall ends and to cabinets on the same wall.
 // Otherwise: 10 mm grid and footprint edges to other cabinets within 40 mm.
 // Returns [x, z, rotation].
+let wallSnap = null; // { w, t0, c, hits: [t...] } from the last snap onto a wall, for the on-screen cue
+const SNAP_REACH = 400; // how far (beyond half the depth) a dragged cabinet is pulled onto a wall
 function snap(c, x, z) {
   const ws = roomWalls(project.room);
+  wallSnap = null;
   if (ws.length) {
     const ctr = toWorld(c, c.width / 2, c.depth / 2, x, z);
     let best = null;
     for (const w of ws) {
       const [t, s] = wallLocal(w, ctr[0], ctr[1]);
-      if (s < 0 || s > c.depth / 2 + 250 || t < -c.width / 2 || t > w.len + c.width / 2) continue;
+      if (s < 0 || s > c.depth / 2 + SNAP_REACH || t < -c.width / 2 || t > w.len + c.width / 2) continue;
       if (!best || s < best.s) best = { w, t, s };
     }
     if (best) {
       const w = best.w;
       let t0 = Math.round((best.t - c.width / 2) / 10) * 10;
-      const ends = [0, w.len];
+      const ends = [0, w.len], solid = []; // solid: same-height neighbours on this wall
+      const group = new Set(groupOf(c));
       for (const o of project.cabinets) {
-        if (o === c) continue;
+        if (group.has(o)) continue;
         const [ot, os] = wallLocal(w, o.x, o.z);
-        if (Math.abs(os) < 2 && Math.abs(((o.rotation - w.rotation + 540) % 360) - 180) < 0.5) ends.push(ot, ot + o.width);
+        if (Math.abs(os) < 2 && Math.abs(((o.rotation - w.rotation + 540) % 360) - 180) < 0.5) {
+          ends.push(ot, ot + o.width);
+          if (o.elevation < c.elevation + c.height && o.elevation + o.height > c.elevation) solid.push([ot, ot + o.width]);
+        }
       }
       let d = null;
       for (const e of ends) for (const edge of [t0, t0 + c.width]) {
-        const k = e - edge; if (Math.abs(k) < 40 && (d === null || Math.abs(k) < Math.abs(d))) d = k;
+        const k = e - edge; if (Math.abs(k) < 80 && (d === null || Math.abs(k) < Math.abs(d))) d = k;
       }
       t0 += d ?? 0;
+      // never land inside a neighbour: slide to whichever side is nearer
+      for (let pass = 0; pass < 4; pass++) {
+        const hit = solid.find(([a, b]) => t0 < b - 0.5 && t0 + c.width > a + 0.5);
+        if (!hit) break;
+        t0 = Math.abs(hit[1] - t0) <= Math.abs(t0 + c.width - hit[0]) ? hit[1] : hit[0] - c.width;
+      }
+      const hits = ends.filter((e) => Math.abs(e - t0) < 0.5 || Math.abs(e - t0 - c.width) < 0.5);
+      const left = Math.max(...ends.filter((e) => e <= t0 + 0.5)), right = Math.min(...ends.filter((e) => e >= t0 + c.width - 0.5));
+      wallSnap = { w, t0, c, hits, left: t0 - left, right: right - t0 - c.width };
       const [px, pz] = wallPoint(w, t0, 0);
       return [Math.round(px * 10) / 10, Math.round(pz * 10) / 10, w.rotation];
     }
@@ -1251,6 +1275,41 @@ function snap(c, x, z) {
   };
   return [Math.round(x + best([f.x0, f.x1], xs)), Math.round(z + best([f.z0, f.z1], zs)), c.rotation];
 }
+// Snap cue: the wall lights up, an accent strip runs along its face under
+// the cabinet, edges that locked onto a corner or a neighbour get an upright
+// line, and a chip shows the gaps either side.
+let snapCue = null, snapChip = null;
+const snapMat = new THREE.MeshBasicMaterial({ color: 0x2f6fe4, transparent: true, opacity: 0.55, depthWrite: false });
+const snapWallMat = new THREE.MeshStandardMaterial({ color: 0x2f6fe4, roughness: 1, transparent: true, opacity: 0.35, depthWrite: false });
+function showSnapCue(info) {
+  if (snapCue) { scene.remove(snapCue); snapCue = null; }
+  if (snapChip) { snapChip.remove(); const k = overlayItems.findIndex((o) => o.el === snapChip); if (k >= 0) overlayItems.splice(k, 1); snapChip = null; }
+  for (const g of roomGroup.children) for (const m of g.children) {
+    if (m.userData.wall == null || m.material === glassMat) continue;
+    m.material = info && m.userData.wall === info.w.i ? snapWallMat : m.userData.wall === selWall ? wallSelMat : wallMat;
+  }
+  if (!info) return;
+  const { w, t0, c } = info, box = new THREE.BoxGeometry(1, 1, 1);
+  snapCue = new THREE.Group();
+  const strip = new THREE.Mesh(box, snapMat), sw = 40;
+  const [sx, sz] = wallPoint(w, t0 + c.width / 2, sw / 2);
+  strip.scale.set(c.width, 4, sw); strip.position.set(sx, 2 + c.elevation, sz);
+  strip.rotation.y = THREE.MathUtils.degToRad(w.rotation);
+  snapCue.add(strip);
+  for (const t of info.hits) {
+    const post = new THREE.Mesh(box, snapMat);
+    const [px, pz] = wallPoint(w, t, 20);
+    post.scale.set(12, c.height + 120, 12); post.position.set(px, c.elevation + (c.height + 120) / 2, pz);
+    snapCue.add(post);
+  }
+  scene.add(snapCue);
+  const fmt = (v) => (Math.abs(v) < 0.5 ? "0" : String(Math.round(v)));
+  snapChip = h("span", { class: "snapchip" }, `◀ ${fmt(info.left)}`, h("b", {}, `Wall ${w.i + 1}`), `${fmt(info.right)} ▶`);
+  $("#overlay").append(snapChip);
+  const [cx, cz] = wallPoint(w, t0 + c.width / 2, c.depth + 80);
+  overlayItems.push({ el: snapChip, pos: new THREE.Vector3(cx, c.elevation + c.height + 60, cz), always: true });
+}
+
 // Rotate 90° clockwise (seen from above) about the footprint centre.
 function rotateCabinet(c) {
   const fs = groupOf(c).map((m) => footprint(m));
