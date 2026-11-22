@@ -263,16 +263,40 @@ pub fn obj(project: &Project, build: &Build) -> String {
             continue;
         };
         let (sin, cos) = c.rotation.to_radians().sin_cos();
+        let world = |x: f64, z: f64| (c.x + x * cos + z * sin, c.z - x * sin + z * cos);
         let _ = writeln!(o, "o {}_{}", p.cabinet, p.name.replace(' ', "_"));
+        if p.shape.len() >= 3 {
+            // prism: plan outline (convex) from box3d's bottom to its top
+            let (y0, y1) = (p.box3d.pos[1], p.box3d.pos[1] + p.box3d.size[1]);
+            let n = p.shape.len();
+            for y in [y0, y1] {
+                for v in &p.shape {
+                    let (wx, wz) = world(v[0], v[1]);
+                    let _ = writeln!(o, "v {:.2} {:.2} {:.2}", wx, y + c.elevation, wz);
+                }
+            }
+            for k in 1..n - 1 {
+                let _ = writeln!(o, "f {} {} {}", vi, vi + k + 1, vi + k);
+                let _ = writeln!(o, "f {} {} {}", vi + n, vi + n + k, vi + n + k + 1);
+            }
+            for k in 0..n {
+                let j = (k + 1) % n;
+                let _ = writeln!(o, "f {} {} {} {}", vi + k, vi + j, vi + n + j, vi + n + k);
+            }
+            vi += 2 * n;
+            continue;
+        }
+        let (rs, rc) = p.rot.to_radians().sin_cos();
         for b in std::iter::once(&p.box3d).chain(p.more3d.iter()) {
             let [x0, y0, z0] = b.pos;
             let [sx, sy, sz] = b.size;
             for i in 0..8 {
-                let x = x0 + if i & 1 != 0 { sx } else { 0.0 };
+                let dx = if i & 1 != 0 { sx } else { 0.0 };
                 let y = y0 + if i & 2 != 0 { sy } else { 0.0 };
-                let z = z0 + if i & 4 != 0 { sz } else { 0.0 };
-                let wx = c.x + x * cos + z * sin;
-                let wz = c.z - x * sin + z * cos;
+                let dz = if i & 4 != 0 { sz } else { 0.0 };
+                // rotated parts turn about box3d.pos
+                let (x, z) = (x0 + dx * rc + dz * rs, z0 - dx * rs + dz * rc);
+                let (wx, wz) = world(x, z);
                 let _ = writeln!(o, "v {:.2} {:.2} {:.2}", wx, y + c.elevation, wz);
             }
             for f in [[0, 2, 3, 1], [4, 5, 7, 6], [0, 1, 5, 4], [2, 6, 7, 3], [0, 4, 6, 2], [1, 3, 7, 5]] {

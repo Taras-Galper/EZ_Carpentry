@@ -100,6 +100,18 @@ pub struct Part {
     /// its cost). Empty = belongs to `cabinet` alone.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub shared: Vec<(String, f64)>,
+    /// Rotation (degrees, same sense as a cabinet's) of box3d about the
+    /// vertical through box3d.pos, for parts at an angle (diagonal doors).
+    #[serde(skip_serializing_if = "is_zero")]
+    pub rot: f64,
+    /// Plan outline (cabinet-local x, z) of a horizontal panel that is not
+    /// a box (diagonal-front tops, bottoms, shelves); box3d gives its height.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub shape: Vec<[f64; 2]>,
+}
+
+fn is_zero(v: &f64) -> bool {
+    *v == 0.0
 }
 
 /// Rounded-rectangle through cut-out, drawing frame.
@@ -281,6 +293,8 @@ impl Ctx<'_> {
             more3d: vec![],
             band_segs: vec![],
             shared: vec![],
+            rot: 0.0,
+            shape: vec![],
         });
         self.out.parts.len() - 1
     }
@@ -660,9 +674,14 @@ fn shaker_pieces(p: Part, f: f64, g: f64, pm: &Material) -> Vec<Part> {
     // Fronts on an L corner's return face lie in the y-z plane.
     let along_z = p.box3d.size[0] < p.box3d.size[2];
     let ft = if along_z { p.box3d.size[0] } else { p.box3d.size[2] };
+    let rot = p.rot;
     // (across the face, up, into the thickness) -> box
     let fb = |u: f64, v: f64, off: f64, du: f64, dv: f64, th: f64| {
-        if along_z {
+        if rot != 0.0 {
+            // angled front: pieces turn with it about the door's corner
+            let (wx, wz) = to_world(x0, z0, rot, u, off);
+            Box3 { pos: [wx, y0 + v, wz], size: [du, dv, th] }
+        } else if along_z {
             Box3 { pos: [x0 + off, y0 + v, z0 + u], size: [th, dv, du] }
         } else {
             Box3 { pos: [x0 + u, y0 + v, z0 + off], size: [du, dv, th] }
@@ -688,6 +707,8 @@ fn shaker_pieces(p: Part, f: f64, g: f64, pm: &Material) -> Vec<Part> {
         more3d: vec![],
         band_segs: vec![],
         shared: vec![],
+        rot: p.rot,
+        shape: vec![],
     };
     let fm = Material { id: p.material.clone(), thickness: p.thickness, ..Material::default() };
     let rail_len = w - 2.0 * f + 2.0 * g;
@@ -1022,6 +1043,8 @@ fn build_worktops(project: &Project, out: &mut Build) {
             more3d: vec![],
             band_segs: vec![],
             shared: vec![],
+            rot: 0.0,
+            shape: vec![],
         });
         if t.len > tm.sheet_length - 2.0 * s.sheet_trim {
             out.warnings.push(format!("Worktop over {} is {:.0} mm, longer than the {} blank", t.ids, t.len, tm.name));
@@ -1076,8 +1099,13 @@ fn build_lcorner(project: &Project, cab: &Cabinet, out: &mut Build) {
     let mut cx = Ctx { cab, out };
     let (w, h, d, w2) = (cab.width, cab.height, cab.depth, cab.width2);
     let (t, bt, ft, g) = (cm.thickness, bm.thickness, fm.thickness, s.front_gap);
-    if w < d + 250.0 || w2 < d + 250.0 || h < 2.0 * t + 50.0 || d < bt + 100.0 {
-        cx.warn("too small for an L corner: each arm needs at least depth + 250 mm");
+    let diag = cab.is_diagonal();
+    if cab.corner == Corner::Diagonal && !diag {
+        cx.warn("diagonal corners are wall cabinets; built as an L");
+    }
+    let min_arm = if diag { 50.0 } else { 250.0 };
+    if w < d + min_arm || w2 < d + min_arm || h < 2.0 * t + 50.0 || d < bt + 100.0 {
+        cx.warn(format!("too small for a corner cabinet: each arm needs at least depth + {min_arm:.0} mm"));
         return;
     }
     if !cab.drawers.is_empty() {
@@ -1105,10 +1133,30 @@ fn build_lcorner(project: &Project, cab: &Cabinet, out: &mut Build) {
     let mut side_e: Vec<Hole> = vec![];
     let at = [50.0, cd / 2.0, cd - 50.0];
 
+    // Diagonal front: the line from the left side's front corner (0, d) to the
+    // end side's (xb, w2); `dn` is its outward normal (towards the room).
+    let dl = (xb * xb + (w2 - d) * (w2 - d)).sqrt();
+    let dd = (xb / dl, (w2 - d) / dl);
+    let dn = (-dd.1, dd.0);
     // ---------- L panels: bottom, top ----------
     let l_panel = |cx: &mut Ctx, key: &str, name: &str, role: Role, y: f64, inset: f64, notch: f64| -> usize {
         // inset: clearance from sides/backs (shelves); notch: setback from the fronts
         let (x0, x1, z0, z1) = (t + inset, xr - inset, bt + inset, ze - inset);
+        if diag {
+            // pentagon: the diagonal moved back by `notch`, cut by the left side line and the end side line
+            let (px, pz) = (-dn.0 * notch, d - dn.1 * notch);
+            let zp = pz + (x0 - px) / dd.0 * dd.1;
+            let xq = px + (z1 - pz) / dd.1 * dd.0;
+            let pts = [(x0, z0), (x1, z0), (x1, z1), (xq, z1), (x0, zp)];
+            let idx =
+                cx.part(key, name, role, &cm, x1 - x0, z1 - z0, false, [false; 4], Box3 { pos: [x0, y, z0], size: [x1 - x0, t, z1 - z0] });
+            let p = &mut cx.out.parts[idx];
+            p.outline = plan_outline(&pts, x0, z1);
+            let (a, b) = ([r1(0.0), r1(z1 - zp)], [r1(xq - x0), r1(0.0)]);
+            p.band_segs = segs_where(&p.outline, |u, v| (u == a && v == b) || (u == b && v == a));
+            p.shape = pts.iter().map(|&(x, z)| [r1(x), r1(z)]).collect();
+            return idx;
+        }
         let (xn, zn) = (xb + notch, d - notch);
         let pts = [(x0, z0), (x1, z0), (x1, z1), (xn, z1), (xn, zn), (x0, zn)];
         let idx =
@@ -1180,8 +1228,42 @@ fn build_lcorner(project: &Project, cab: &Cabinet, out: &mut Build) {
         }
     }
 
+    // ---------- door across the diagonal ----------
+    if diag && cab.doors > 0 && h - toe > 100.0 {
+        let fh = h - toe - g;
+        let fw = dl - g;
+        let rot = (-dd.1).atan2(dd.0).to_degrees(); // local x along the diagonal, local z = outward
+        let idx = cx.part(
+            "door1",
+            "Door 1",
+            Role::Front,
+            &fm,
+            fw,
+            fh,
+            true,
+            [true; 4],
+            Box3 { pos: [dd.0 * g / 2.0, toe + g / 2.0, d + dd.1 * g / 2.0], size: [fw, fh, ft] },
+        );
+        cx.out.parts[idx].rot = rot;
+        let hy = hinge_positions(fh);
+        for &y in &hy {
+            cx.out.parts[idx].holes.push(Hole { x: r1(fw - s.hinge_cup_inset), y: r1(y), dia: 35.0, depth: 13.0, edge: None });
+            let yw = toe + g / 2.0 + y;
+            side_l.push(Hole { x: sl, y: yw - 16.0, dia: 5.0, depth: 12.0, edge: None });
+            side_l.push(Hole { x: sl, y: yw + 16.0, dia: 5.0, depth: 12.0, edge: None });
+        }
+        cx.hw("Clip hinge +45° + plate", hy.len() as u32);
+        if cab.handles {
+            let sp = s.handle_spacing;
+            let yc = 60.0 + sp / 2.0;
+            let p = &mut cx.out.parts[idx];
+            p.holes.push(Hole { x: 40.0, y: r1(yc - sp / 2.0), dia: 5.0, depth: 0.0, edge: None });
+            p.holes.push(Hole { x: 40.0, y: r1(yc + sp / 2.0), dia: 5.0, depth: 0.0, edge: None });
+            cx.hw(format!("Handle {}mm", sp), 1);
+        }
+    }
     // ---------- doors: bi-fold pair ----------
-    if cab.doors > 0 && h - toe > 100.0 {
+    if !diag && cab.doors > 0 && h - toe > 100.0 {
         let fh = h - toe - g;
         let y0 = toe + g / 2.0;
         let wa = xb - ft - g; // leaf A, on the left side
@@ -1244,7 +1326,9 @@ fn build_lcorner(project: &Project, cab: &Cabinet, out: &mut Build) {
             l_panel(&mut cx, &format!("shelf{}", i + 1), &format!("Shelf {}", i + 1), Role::Shelf, ys, 1.0, s.shelf_setback);
         }
         cx.hw("Shelf pin 5mm", 4 * n);
-        cx.hw("Shelf support bracket", n);
+        if !diag {
+            cx.hw("Shelf support bracket", n);
+        }
     }
 
     shakerize(project, cab, cx.out, start);

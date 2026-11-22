@@ -266,8 +266,14 @@ impl Cabinet {
             && matches!(self.kind, CabinetKind::Base | CabinetKind::Tall | CabinetKind::Dishwasher | CabinetKind::Filler)
     }
 
+    /// A two-arm corner cabinet (L, or diagonal on a wall cabinet).
     pub fn is_l(&self) -> bool {
-        self.corner == Corner::L && self.kind.is_carcass()
+        self.kind.is_carcass() && (self.corner == Corner::L || self.corner == Corner::Diagonal)
+    }
+
+    /// Diagonal-front corner (wall cabinets only; elsewhere it builds as an L).
+    pub fn is_diagonal(&self) -> bool {
+        self.corner == Corner::Diagonal && self.kind == CabinetKind::Wall
     }
 
     /// Plan footprint as local rectangles [x0, z0, x1, z1].
@@ -362,6 +368,8 @@ pub enum Corner {
     #[default]
     None,
     L,
+    /// Wall cabinets: the same two arms with one door across the corner at an angle.
+    Diagonal,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]

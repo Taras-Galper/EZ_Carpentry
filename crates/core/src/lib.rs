@@ -1153,4 +1153,42 @@ mod tests {
         };
         assert!(sheets(&q) <= sheets(&q0), "{} vs {}", sheets(&q), sheets(&q0));
     }
+
+    #[test]
+    fn diagonal_wall_corner() {
+        for style in [DoorStyle::Slab, DoorStyle::Shaker] {
+            let mut p = l_kitchen();
+            p.cabinets.retain(|c| c.id == "wl");
+            p.cabinets[0].corner = Corner::Diagonal;
+            p.cabinets[0].door_style = style;
+            let r = compute(&p);
+            assert!(r.build.warnings.is_empty(), "{:?}", r.build.warnings);
+            let parts: Vec<_> = r.build.parts.iter().filter(|q| q.cabinet == "wl").collect();
+            let get = |k: &str| parts.iter().find(|q| q.id == format!("wl-{k}")).unwrap();
+            let top = get("top");
+            assert_eq!(top.outline.len(), 5);
+            assert_eq!(top.shape.len(), 5);
+            assert_eq!(top.band_segs.len(), 1);
+            // the banded edge is the diagonal: (600-320)·√2 less the side thickness share
+            let diag = top.band_length();
+            assert!(diag > 300.0 && diag < 400.0, "{diag}");
+            for q in &parts {
+                for h in q.holes.iter().filter(|h| h.edge.is_none()) {
+                    assert!(inside_outline(&q.outline, h.x, h.y), "{} {:?}", q.id, h);
+                }
+            }
+            // one door (or its Shaker pieces) turned -45° (local x running +x +z) across the corner, in front of the carcass line
+            let doors: Vec<_> = parts.iter().filter(|q| q.role == parts::Role::Front).collect();
+            assert!(!doors.is_empty());
+            for q in &doors {
+                assert!((q.rot + 45.0).abs() < 1e-6, "{} {}", q.id, q.rot);
+                let [x, _, z] = q.box3d.pos;
+                assert!(z - 320.0 - x >= -0.01, "{} behind the diagonal", q.id);
+                // line z = 320 + x
+            }
+            assert!(r.build.hardware.iter().any(|h| h.cabinet == "wl" && h.name.starts_with("Clip hinge +45°")));
+            let obj = export::obj(&p, &r.build);
+            assert!(obj.contains("o wl_Top"));
+        }
+    }
 }

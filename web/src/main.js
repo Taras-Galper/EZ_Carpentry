@@ -28,6 +28,7 @@ let project, report, selected = null, tab = "3d", showFronts = true;
 // others; it is dropped whenever `selected` changes outside multi-select.
 const selSet = new Set();
 let selAnchor = null;
+let multiMode = false; // taps add to the selection (phones have no Shift)
 const isSel = (id) => id === selected || selSet.has(id);
 const selection = () => project.cabinets.filter((c) => isSel(c.id));
 let selWall = null;   // index of the selected wall, or null
@@ -226,6 +227,7 @@ const CAB_PRESETS = {
   Wardrobe: () => ({ kind: "tall", name: "Wardrobe", width: 1000, height: 2300, depth: 600, toe_kick_height: 100, toe_kick_depth: 60, doors: 2, drawers: [], shelves: 0, hanging_rail: true }),
   Open: () => ({ kind: "wall", name: "Open shelf", width: 600, height: 720, depth: 320, elevation: 1450, toe_kick_height: 0, doors: 0, drawers: [], shelves: 2 }),
   "L corner": () => ({ kind: "base", name: "L corner", width: 1000, width2: 1000, height: 870, depth: 560, toe_kick_height: 100, toe_kick_depth: 60, doors: 1, drawers: [], shelves: 1, corner: "l" }),
+  "Wall diag": () => ({ kind: "wall", name: "Wall diagonal corner", width: 600, width2: 600, height: 720, depth: 320, elevation: 1450, toe_kick_height: 0, doors: 1, drawers: [], shelves: 2, corner: "diagonal" }),
   "Wall L": () => ({ kind: "wall", name: "Wall L corner", width: 600, width2: 600, height: 720, depth: 320, elevation: 1450, toe_kick_height: 0, doors: 1, drawers: [], shelves: 2, corner: "l" }),
   Blind: () => ({ kind: "base", name: "Blind corner", width: 1200, height: 870, depth: 560, toe_kick_height: 100, toe_kick_depth: 60, doors: 1, drawers: [], shelves: 1, blind_side: "right", blind_width: 600 }),
   Oven: () => ({ kind: "tall", name: "Oven housing", width: 600, height: 2200, depth: 580, toe_kick_height: 100, toe_kick_depth: 60, doors: 1, drawers: [375, 375], shelves: 1, housing_height: 590, housing_elevation: 850 }),
@@ -383,6 +385,7 @@ const ICONS = {
   Sink: '<rect x="1" y="6" width="26" height="2.5" class="k"/><rect x="3" y="8.5" width="22" height="21.5"/><line x1="14" y1="8.5" x2="14" y2="30"/><path d="M10 6 v-3 h4"/><rect x="3" y="30" width="22" height="3" class="k"/>',
   Hob: '<rect x="1" y="6" width="26" height="2.5" class="k"/><rect x="3" y="8.5" width="22" height="21.5"/><line x1="3" y1="15" x2="25" y2="15"/><line x1="3" y1="22" x2="25" y2="22"/><line x1="7" y1="4" x2="21" y2="4" class="t"/><rect x="3" y="30" width="22" height="3" class="k"/>',
 "L corner": '<path d="M2 8 h24 v22 h-9 v-13 h-15 z"/><line x1="17" y1="17" x2="17" y2="30" class="t"/>',
+  "Wall diag": '<path d="M2 3 h24 v18 h-9 l-15 -10 z"/><line x1="0" y1="1.5" x2="28" y2="1.5" class="t"/>',
   "Wall L": '<path d="M2 3 h24 v18 h-9 v-10 h-15 z"/><line x1="0" y1="1.5" x2="28" y2="1.5" class="t"/>',
   Blind: '<rect x="2" y="8" width="24" height="22"/><rect x="15" y="8" width="11" height="22" class="k"/><line x1="12" y1="12" x2="12" y2="17"/><rect x="2" y="30" width="24" height="3" class="k"/>',
   Wall: '<rect x="3" y="3" width="22" height="16"/><line x1="20" y1="13" x2="20" y2="17"/><line x1="0" y1="2" x2="28" y2="2" class="t"/>',
@@ -432,7 +435,7 @@ function renderPalette() {
 function renderList() {
   const ul = $("#list"); ul.replaceChildren();
   for (const c of project.cabinets) {
-    ul.append(h("li", { class: isSel(c.id) ? "sel" : "", onclick: (e) => { if (e.shiftKey && selected) toggleSel(c.id); else { selected = c.id; selWall = null; closeSheetOnPhone(); } recompute(); } },
+    ul.append(h("li", { class: isSel(c.id) ? "sel" : "", onclick: (e) => { if ((e.shiftKey || multiMode) && selected) toggleSel(c.id); else { selected = c.id; selWall = null; closeSheetOnPhone(); } recompute(); } },
       h("b", {}, c.id), h("span", {}, c.name), h("em", {}, `${c.width}${isL(c) ? "/" + c.width2 : ""}×${c.height}×${c.depth}`)));
   }
 }
@@ -541,6 +544,7 @@ function renderProps() {
       } }, "Duplicate"),
       h("button", { title: "Rotate 90° (R)", onclick: () => rotateCabinet(c) }, "⟳"),
       h("button", { title: "Save as preset", onclick: () => savePreset(c) }, "★"),
+      h("button", { class: multiMode ? "on" : "", title: "Tap more cabinets to add them (or Shift-click)", onclick: () => { multiMode = !multiMode; recompute(); } }, "+ Select"),
       h("button", { class: "danger", onclick: () => {
         project.cabinets = project.cabinets.filter((x) => x !== c); selected = null; recompute();
       } }, "Delete")),
@@ -556,10 +560,10 @@ function renderProps() {
     carcass ? [
       h("h3", {}, "Interior"),
       h("div", { class: "grid2" },
-        field("Corner", c, "corner", "select", [["none", "None"], ["l", "L shape"]]),
+        field("Corner", c, "corner", "select", c.kind === "wall" ? [["none", "None"], ["l", "L shape"], ["diagonal", "Diagonal"]] : [["none", "None"], ["l", "L shape"]]),
         lc ? field("Return width", c, "width2") : field("Blind corner", c, "blind_side", "select", [["none", "None"], ["left", "Left"], ["right", "Right"]]),
         blind ? [field("Blind width", c, "blind_width"), h("span")] : null,
-        lc ? field("Doors", c, "doors", "select", [[0, "None"], [1, "Bi-fold"]]) : field("Doors", c, "doors", "select", [[0, "None"], [1, "1"], [2, "2"]]),
+        lc ? field("Doors", c, "doors", "select", [[0, "None"], [1, c.corner === "diagonal" && c.kind === "wall" ? "1" : "Bi-fold"]]) : field("Doors", c, "doors", "select", [[0, "None"], [1, "1"], [2, "2"]]),
         lc || c.lift_up ? null : field("Hinge", c, "hinge_side", "select", [["left", "Left"], ["right", "Right"]]),
         c.kind === "wall" && !lc ? field("Lift-up", c, "lift_up", "check") : null,
         field("Glass", c, "glass", "check"),
@@ -620,6 +624,7 @@ function renderMultiPanel(put) {
   const grouped = cs.some((c) => c.group);
   put(
     h("div", { class: "row" }, h("h3", {}, `${cs.length} cabinets`),
+      h("button", { class: multiMode ? "on" : "", onclick: () => { multiMode = !multiMode; recompute(); } }, "+ Select"),
       h("button", { title: "Rotate 90° (R)", onclick: () => rotateCabinet(cs.find((c) => c.id === selected)) }, "⟳"),
       h("button", { class: "danger", onclick: () => { project.cabinets = project.cabinets.filter((x) => !isSel(x.id)); selected = null; recompute(); } }, "Delete")),
     h("div", { class: "mute" }, cs.map((c) => c.id).join(" · ")),
@@ -1191,7 +1196,8 @@ function setup3d() {
     }
     if (Math.hypot(e.clientX - d.sx, e.clientY - d.sy) > 4) return;
     if (!d.c && d.wall == null) closeSheetOnPhone();
-    if (d.c && e.shiftKey && selected) { toggleSel(d.c.id); selWall = null; recompute(); return; }
+    if (d.c && (e.shiftKey || multiMode) && selected) { toggleSel(d.c.id); selWall = null; recompute(); return; }
+    if (!d.c) multiMode = false;
     selected = d.c ? d.c.id : null;
     selWall = !d.c && d.wall != null ? d.wall : null;
     recompute();
@@ -1322,7 +1328,7 @@ function toWorld(c, x, z, ox = c.x, oz = c.z, rot = c.rotation) {
   const r = THREE.MathUtils.degToRad(rot), sn = Math.sin(r), cs = Math.cos(r);
   return [ox + x * cs + z * sn, oz - x * sn + z * cs];
 }
-const isL = (c) => c.corner === "l" && ["base", "wall", "tall"].includes(c.kind);
+const isL = (c) => (c.corner === "l" || c.corner === "diagonal") && ["base", "wall", "tall"].includes(c.kind);
 function footprint(c, ox = c.x, oz = c.z, rot = c.rotation) {
   const d2 = isL(c) ? Math.max(c.width2, c.depth) : c.depth;
   const pts = [[0, 0], [c.width, 0], [0, d2], [c.width, d2]].map(([x, z]) => toWorld(c, x, z, ox, oz, rot));
@@ -1533,15 +1539,27 @@ function updateScene() {
     if (!showFronts && p.role === "front") continue;
     const g = groups.get(p.cabinet); if (!g) continue;
     const [x, y, z] = p.box3d.pos, [sx, sy, sz] = p.box3d.size;
-    for (const b of [p.box3d, ...(p.more3d || [])]) {
+    if (p.shape?.length >= 3) {
+      // horizontal panel with a plan outline: extrude it down from its top
+      const sh = new THREE.Shape(p.shape.map(([x, z]) => new THREE.Vector2(x, z)));
+      const geo = new THREE.ExtrudeGeometry(sh, { depth: p.box3d.size[1], bevelEnabled: false });
+      geo.rotateX(Math.PI / 2);
+      const m = new THREE.Mesh(geo, partMat(p, p.box3d.size, isSel(p.cabinet)));
+      m.position.y = p.box3d.pos[1] + p.box3d.size[1];
+      m.userData.cab = p.cabinet;
+      const l = new THREE.LineSegments(new THREE.EdgesGeometry(geo), edgeMat); l.position.copy(m.position);
+      g.add(m, l);
+    } else for (const b of [p.box3d, ...(p.more3d || [])]) {
       const m = new THREE.Mesh(box, partMat(p, b.size, isSel(p.cabinet)));
-      m.scale.set(...b.size); m.position.set(b.pos[0] + b.size[0] / 2, b.pos[1] + b.size[1] / 2, b.pos[2] + b.size[2] / 2);
+      m.scale.set(...b.size); m.position.set(b.size[0] / 2, b.size[1] / 2, b.size[2] / 2);
       m.userData.cab = p.cabinet;
       const l = new THREE.LineSegments(edges, edgeMat); l.scale.copy(m.scale); l.position.copy(m.position);
-      g.add(m, l);
+      // boxes turn about their corner (angled doors)
+      const pivot = new THREE.Group(); pivot.position.set(...b.pos); pivot.rotation.y = THREE.MathUtils.degToRad(p.rot || 0);
+      pivot.add(m, l); g.add(pivot);
     }
     // Routed Shaker recess on the outside face (front parts are drawn inside face up, so x mirrors)
-    if (p.role === "front") for (const k of (p.pockets || []).filter((k) => k.face === 2)) {
+    if (p.role === "front" && !p.rot) for (const k of (p.pockets || []).filter((k) => k.face === 2)) {
       const rc = new THREE.Mesh(box, recessMat);
       if (sx < sz) { // L corner return leaf: faces -x, drawing x runs back along z
         rc.scale.set(1, k.h, k.w);
@@ -1760,7 +1778,7 @@ async function main() {
     if (drawing && e.key === "Enter") { finishDrawing(); return; }
     if (drawing && e.key === "Escape") { drawing = null; updatePreview(); recompute(); return; }
     if (drawing && e.key === "Backspace") { drawing.pts.pop(); updatePreview(); renderPlanTools(); return; }
-    if (e.key === "Escape") { selected = null; selWall = null; recompute(); }
+    if (e.key === "Escape") { selected = null; selWall = null; multiMode = false; recompute(); }
     if (selected && e.key.startsWith("Arrow") && tab === "3d") {
       const c = project.cabinets.find((c) => c.id === selected);
       if (c) {

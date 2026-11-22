@@ -300,12 +300,14 @@ pub fn wall_svg(project: &Project, build: &Build, wi: usize) -> Option<String> {
     let reach = 700.0;
 
     // Project a cabinet-local box onto the wall: (t0, t1, y0, y1, s_near).
-    let project_box = |c: &Cabinet, b: &crate::parts::Box3| {
+    let project_box = |c: &Cabinet, b: &crate::parts::Box3, rot: f64| {
         let [x0, y0, z0] = b.pos;
         let [sx, sy, sz] = b.size;
         let mut t = (f64::MAX, f64::MIN);
         let mut s = (f64::MAX, f64::MIN);
-        for (x, z) in [(x0, z0), (x0 + sx, z0), (x0, z0 + sz), (x0 + sx, z0 + sz)] {
+        let (rs, rc) = rot.to_radians().sin_cos();
+        for (dx, dz) in [(0.0, 0.0), (sx, 0.0), (0.0, sz), (sx, sz)] {
+            let (x, z) = (x0 + dx * rc + dz * rs, z0 - dx * rs + dz * rc);
             let (wx, wz) = crate::parts::to_world(c.x, c.z, c.rotation, x, z);
             let (tt, ss) = w.local(wx, wz);
             t = (t.0.min(tt), t.1.max(tt));
@@ -325,7 +327,7 @@ pub fn wall_svg(project: &Project, build: &Build, wi: usize) -> Option<String> {
     for c in &project.cabinets {
         for r in c.rects() {
             let b = crate::parts::Box3 { pos: [r[0], 0.0, r[1]], size: [r[2] - r[0], c.height, r[3] - r[1]] };
-            let (t0, t1, y0, y1, s0, s1) = project_box(c, &b);
+            let (t0, t1, y0, y1, s0, s1) = project_box(c, &b, 0.0);
             if near(t0, t1, s0, s1) {
                 let cls = if c.kind.is_carcass() { "carcass" } else { "ghost" };
                 items.push((s1 - 30.0, cls, t0, t1, y0, y1));
@@ -335,7 +337,7 @@ pub fn wall_svg(project: &Project, build: &Build, wi: usize) -> Option<String> {
     for p in build.parts.iter().filter(|p| matches!(p.role, Role::Front | Role::Worktop)) {
         let Some(c) = project.cabinets.iter().find(|c| c.id == p.cabinet) else { continue };
         for b in std::iter::once(&p.box3d).chain(p.more3d.iter()) {
-            let (t0, t1, y0, y1, s0, s1) = project_box(c, b);
+            let (t0, t1, y0, y1, s0, s1) = project_box(c, b, p.rot);
             if near(t0, t1, s0, s1) {
                 items.push((s1, class(p), t0, t1, y0, y1));
             }
