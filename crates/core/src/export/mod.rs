@@ -144,7 +144,36 @@ pub fn sheet_svg(project: &Project, sheet: &Sheet, parts: &[Part]) -> String {
                 pts.join(" ")
             );
         }
+        for k in &p.pockets {
+            let pts: Vec<String> = k
+                .as_cutout()
+                .points(3)
+                .into_iter()
+                .map(|(x, y)| {
+                    let (a, b) = pl.map(p.w, x, y);
+                    format!("{:.1},{:.1}", a, b)
+                })
+                .collect();
+            let dash = if k.face == 2 { r#" stroke-dasharray="8 5""# } else { "" };
+            let _ = write!(
+                o,
+                r##"<polygon points="{}" fill="#000" fill-opacity="0.08" stroke="#555" stroke-width="1.2"{}/>"##,
+                pts.join(" "),
+                dash
+            );
+        }
         for h in &p.holes {
+            if let Some(e) = h.edge {
+                let (dx, dy) = dxf::edge_inward(e);
+                let (a, b) = pl.map(p.w, h.x, h.y);
+                let (c, d) = pl.map(p.w, h.x + dx * h.depth, h.y + dy * h.depth);
+                let _ = write!(
+                    o,
+                    r##"<line x1="{a:.1}" y1="{b:.1}" x2="{c:.1}" y2="{d:.1}" stroke="#d07a00" stroke-width="{:.1}"/>"##,
+                    h.dia
+                );
+                continue;
+            }
             let (x, y) = pl.map(p.w, h.x, h.y);
             let _ = write!(
                 o,

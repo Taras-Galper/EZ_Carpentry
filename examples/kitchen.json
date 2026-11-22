@@ -14,6 +14,11 @@
     "worktop_overhang": 20.0,
     "shaker_frame": 60.0,
     "shaker_groove": 8.0,
+    "routed_depth": 6.0,
+    "joinery": "confirmat",
+    "back_mode": "applied",
+    "back_inset": 10.0,
+    "groove_depth": 8.0,
     "room_width": 0.0,
     "room_depth": 0.0,
     "room_height": 0.0

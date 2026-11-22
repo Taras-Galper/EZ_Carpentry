@@ -4,6 +4,10 @@
 //! Layers:
 //!   OUTLINE          part profile (cut through)
 //!   CUTOUT           inner through profiles: sink / hob (arcs as bulges)
+//!   POCKET_Z{z}      pocket / groove z deep in the drawn face (closed outline)
+//!   F2_POCKET_Z{z}   same on the opposite face (flip the part)
+//!   HDRILL_D{d}_Z{z} horizontal bore into an edge: line from the edge
+//!                    inwards, as long as the bore is deep, mid-thickness
 //!   DRILL_D{d}_Z{z}  vertical bores, diameter d, depth z (mm)
 //!   DRILL_D{d}_THRU  through bores
 //!   SHEET            sheet boundary (sheet files only)
@@ -15,6 +19,9 @@ use std::fmt::Write;
 
 pub fn hole_layer(h: &Hole) -> String {
     let d = fmt_num(h.dia);
+    if h.edge.is_some() {
+        return format!("HDRILL_D{d}_Z{}", fmt_num(h.depth));
+    }
     if h.depth <= 0.0 {
         format!("DRILL_D{d}_THRU")
     } else {
@@ -33,6 +40,8 @@ fn layer_color(name: &str) -> i32 {
         "SHEET" => 8,
         "LABEL" => 3,
         "CUTOUT" => 6,
+        n if n.starts_with("HDRILL") => 2,
+        n if n.contains("POCKET") => 30,
         n if n.contains("THRU") => 1,
         n if n.starts_with("DRILL_D35") => 5,
         _ => 4,
@@ -74,6 +83,14 @@ impl Dxf {
             }
         }
         let _ = write!(b, "0\nSEQEND\n8\n{layer}\n");
+    }
+    fn line(&mut self, layer: &str, a: (f64, f64), b: (f64, f64)) {
+        self.layer(layer);
+        let _ = write!(
+            self.body,
+            "0\nLINE\n8\n{layer}\n10\n{:.3}\n20\n{:.3}\n30\n0.0\n11\n{:.3}\n21\n{:.3}\n31\n0.0\n",
+            a.0, a.1, b.0, b.1
+        );
     }
     fn circle(&mut self, layer: &str, x: f64, y: f64, r: f64) {
         self.layer(layer);
@@ -119,14 +136,45 @@ fn draw_part(d: &mut Dxf, p: &Part, map: &dyn Fn(f64, f64) -> (f64, f64), label:
             .collect();
         d.poly_bulge("CUTOUT", &v);
     }
+    for k in &p.pockets {
+        let layer = format!("{}POCKET_Z{}", if k.face == 2 { "F2_" } else { "" }, fmt_num(k.depth));
+        let v: Vec<(f64, f64, f64)> = k
+            .as_cutout()
+            .contour()
+            .into_iter()
+            .map(|(x, y, g)| {
+                let (a, b) = map(x, y);
+                (a, b, g)
+            })
+            .collect();
+        d.poly_bulge(&layer, &v);
+    }
     for h in &p.holes {
-        let (x, y) = map(h.x, h.y);
-        d.circle(&hole_layer(h), x, y, h.dia / 2.0);
+        match h.edge {
+            None => {
+                let (x, y) = map(h.x, h.y);
+                d.circle(&hole_layer(h), x, y, h.dia / 2.0);
+            }
+            Some(e) => {
+                let (dx, dy) = edge_inward(e);
+                d.line(&hole_layer(h), map(h.x, h.y), map(h.x + dx * h.depth, h.y + dy * h.depth));
+            }
+        }
     }
     if label {
         let th = (p.w.min(p.h) / 8.0).clamp(4.0, 25.0);
         let (x, y) = map(p.w * 0.08, p.h * 0.5);
         d.text(x, y, th, rot, &format!("{} {}", p.cabinet, p.name));
+    }
+}
+
+/// Unit vector pointing into the part from edge `e` (drawing frame).
+pub fn edge_inward(e: u8) -> (f64, f64) {
+    match e {
+        0 => (0.0, 1.0),
+        1 => (-1.0, 0.0),
+        2 => (0.0, -1.0),
+        _ => (1.0, 0.0),
     }
 }
 

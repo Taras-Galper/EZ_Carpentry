@@ -274,6 +274,7 @@ pub fn describe(project: &Project, report: &Report, id: &str) -> String {
             "{} fronts, {}",
             match c.door_style {
                 crate::model::DoorStyle::Shaker => "Shaker",
+                crate::model::DoorStyle::ShakerRouted => "routed Shaker",
                 crate::model::DoorStyle::Slab => "slab",
             },
             project.material(&c.front_material).name

@@ -105,13 +105,131 @@ mod tests {
 
     #[test]
     fn holes_inside_parts() {
-        let r = compute(&sample_kitchen());
-        for p in &r.build.parts {
-            for h in &p.holes {
-                assert!(h.x - h.dia / 2.0 >= -1e-6 && h.x + h.dia / 2.0 <= p.w + 1e-6, "{} {:?}", p.id, h);
-                assert!(h.y - h.dia / 2.0 >= -1e-6 && h.y + h.dia / 2.0 <= p.h + 1e-6, "{} {:?}", p.id, h);
+        let mut p = sample_kitchen();
+        p.settings.back_mode = BackMode::Grooved;
+        for c in p.cabinets.iter_mut().take(3) {
+            c.door_style = DoorStyle::ShakerRouted;
+        }
+        for r in [compute(&sample_kitchen()), compute(&p)] {
+            for q in &r.build.parts {
+                for h in &q.holes {
+                    match h.edge {
+                        None => {
+                            assert!(h.x - h.dia / 2.0 >= -1e-6 && h.x + h.dia / 2.0 <= q.w + 1e-6, "{} {:?}", q.id, h);
+                            assert!(h.y - h.dia / 2.0 >= -1e-6 && h.y + h.dia / 2.0 <= q.h + 1e-6, "{} {:?}", q.id, h);
+                        }
+                        Some(e) => {
+                            // on its edge, within the edge's length, not deeper than the part
+                            let (on, along, len, across) = match e {
+                                0 => (h.y == 0.0, h.x, q.w, q.h),
+                                2 => (h.y == q.h, h.x, q.w, q.h),
+                                1 => (h.x == q.w, h.y, q.h, q.w),
+                                _ => (h.x == 0.0, h.y, q.h, q.w),
+                            };
+                            assert!(on, "{} edge bore off its edge {:?}", q.id, h);
+                            assert!(along - h.dia / 2.0 >= 0.0 && along + h.dia / 2.0 <= len, "{} {:?}", q.id, h);
+                            assert!(h.depth < across, "{} {:?}", q.id, h);
+                            assert!(h.dia < q.thickness, "{} {:?}", q.id, h);
+                        }
+                    }
+                }
+                for k in &q.pockets {
+                    assert!(k.x >= -1e-6 && k.y >= -1e-6 && k.x + k.w <= q.w + 1e-6 && k.y + k.h <= q.h + 1e-6, "{} {:?}", q.id, k);
+                    assert!(k.depth < q.thickness, "{} {:?}", q.id, k);
+                }
             }
         }
+    }
+
+    /// Every side bore of a joint lines up with an edge bore in the panel it holds.
+    #[test]
+    fn joint_bores_line_up() {
+        for joinery in [Joinery::Confirmat, Joinery::Dowel] {
+            for back_mode in [BackMode::Applied, BackMode::Grooved] {
+                let mut p = sample_kitchen();
+                p.settings.joinery = joinery;
+                p.settings.back_mode = back_mode;
+                let r = compute(&p);
+                for c in p.cabinets.iter().filter(|c| c.kind.is_carcass()) {
+                    let side = r.build.parts.iter().find(|q| q.id == format!("{}-side-l", c.id)).unwrap();
+                    let joint_dia = if joinery == Joinery::Confirmat { 7.0 } else { 8.0 };
+                    // side drawing: x from the front -> cabinet z = depth - x
+                    let mut from_side: Vec<(i64, i64)> = side
+                        .holes
+                        .iter()
+                        .filter(|h| h.dia == joint_dia)
+                        .map(|h| ((c.depth - h.x).round() as i64, h.y.round() as i64))
+                        .collect();
+                    // panel left-edge bores: drawing y from the front -> z = depth - y; height = panel mid
+                    let mut from_panels: Vec<(i64, i64)> = r
+                        .build
+                        .parts
+                        .iter()
+                        .filter(|q| q.cabinet == c.id)
+                        .flat_map(|q| {
+                            let front_z = q.box3d.pos[2] + q.box3d.size[2];
+                            let mid_y = q.box3d.pos[1] + q.box3d.size[1] / 2.0;
+                            q.holes
+                                .iter()
+                                .filter(|h| h.edge == Some(3))
+                                .map(move |h| ((front_z - h.y).round() as i64, mid_y.round() as i64))
+                        })
+                        .collect();
+                    from_side.sort();
+                    from_panels.sort();
+                    assert!(!from_side.is_empty());
+                    assert_eq!(from_side, from_panels, "{} {:?} {:?}", c.id, joinery, back_mode);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn grooved_back_fits_its_grooves() {
+        let mut p = sample_kitchen();
+        p.settings.back_mode = BackMode::Grooved;
+        let s = p.settings.clone();
+        let r = compute(&p);
+        assert!(r.build.warnings.is_empty(), "{:?}", r.build.warnings);
+        let c = p.cabinets.iter().find(|c| c.id == "w1").unwrap();
+        let get = |k: &str| r.build.parts.iter().find(|q| q.id == format!("w1-{k}")).unwrap();
+        let (side, back, top) = (get("side-l"), get("back"), get("top"));
+        let t = 18.0;
+        // back is as wide as the interior plus both groove depths, less 1 mm play
+        assert_eq!(back.w, c.width - 2.0 * t + 2.0 * s.groove_depth - 1.0);
+        // sides are full depth and grooved for the back
+        assert_eq!(side.w, c.depth);
+        let g = &side.pockets[0];
+        assert_eq!(g.w, 6.0 + 0.5);
+        assert_eq!(g.x, c.depth - s.back_inset - 6.0 - 0.5);
+        assert_eq!(top.pockets.len(), 1);
+        // back panel box sits inside the groove band
+        assert_eq!(back.box3d.pos[2], s.back_inset);
+    }
+
+    #[test]
+    fn drawer_bottom_fits_grooves() {
+        let r = compute(&sample_kitchen());
+        let side = r.build.parts.iter().find(|q| q.id == "b5-d1sidel").unwrap();
+        let front = r.build.parts.iter().find(|q| q.id == "b5-d1f").unwrap();
+        let bottom = r.build.parts.iter().find(|q| q.id == "b5-d1bot").unwrap();
+        let gd = side.pockets[0].depth;
+        assert_eq!(bottom.w, front.w + 2.0 * gd - 1.0);
+        assert_eq!(bottom.h, side.w - 2.0 * 15.0 + 2.0 * gd - 1.0);
+        assert!(side.pockets[0].h > bottom.thickness);
+    }
+
+    #[test]
+    fn routed_shaker_is_one_piece_with_face2_recess() {
+        let mut p = sample_kitchen();
+        p.cabinets.retain(|c| c.id == "w1");
+        p.cabinets[0].door_style = DoorStyle::ShakerRouted;
+        let r = compute(&p);
+        let door = r.build.parts.iter().find(|q| q.id == "w1-door1").unwrap();
+        assert_eq!(door.pockets.len(), 1);
+        assert_eq!(door.pockets[0].face, 2);
+        assert!(door.holes.iter().any(|h| h.dia == 35.0), "hinge cups stay on the inside face");
+        assert!(r.build.parts.iter().all(|q| !q.id.contains("door1-")), "no stiles/rails");
     }
 
     #[test]

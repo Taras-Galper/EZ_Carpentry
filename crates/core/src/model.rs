@@ -101,6 +101,14 @@ pub struct Settings {
     pub shaker_frame: f64,
     /// Shaker panel groove depth (also the rail tenon length).
     pub shaker_groove: f64,
+    /// Depth of the recess routed into one-piece Shaker fronts.
+    pub routed_depth: f64,
+    pub joinery: Joinery,
+    pub back_mode: BackMode,
+    /// Grooved back: distance from the carcass back edge to the groove.
+    pub back_inset: f64,
+    /// Depth of back-panel and drawer-bottom grooves.
+    pub groove_depth: f64,
     /// Legacy rectangular room (read from older files, moved into
     /// `Project::room` on load).
     pub room_width: f64,
@@ -124,6 +132,11 @@ impl Default for Settings {
             worktop_overhang: 20.0,
             shaker_frame: 60.0,
             shaker_groove: 8.0,
+            routed_depth: 6.0,
+            joinery: Joinery::Confirmat,
+            back_mode: BackMode::Applied,
+            back_inset: 10.0,
+            groove_depth: 8.0,
             room_width: 0.0,
             room_depth: 0.0,
             room_height: 0.0,
@@ -201,6 +214,30 @@ pub enum DoorStyle {
     Slab,
     /// Five-piece frame: two stiles, two rails, a recessed panel.
     Shaker,
+    /// One-piece MDF front with the Shaker recess routed into its face.
+    ShakerRouted,
+}
+
+/// How carcass panels are joined.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum Joinery {
+    /// Ø7 through the side, Ø5 pilot into the panel edge.
+    #[default]
+    Confirmat,
+    /// Ø8 blind in the side, Ø8 into the panel edge.
+    Dowel,
+}
+
+/// How the back panel is fitted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum BackMode {
+    /// Fixed over the back edges of the carcass.
+    #[default]
+    Applied,
+    /// Slid into grooves in the sides, bottom and top.
+    Grooved,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]

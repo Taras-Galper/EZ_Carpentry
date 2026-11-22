@@ -121,7 +121,7 @@ pub fn cabinet_svg(project: &Project, build: &Build, cab: &Cabinet) -> String {
         r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {cw:.0} {ch:.0}" width="{:.0}mm" height="{:.0}mm" font-family="sans-serif">
 <style>
 rect,polygon{{stroke:#222;stroke-width:{lw:.2}}}
-.carcass{{fill:#f2f0ea}}.back{{fill:#e4e1d9}}.shelf{{fill:#ebe8e0}}.drawer{{fill:#efe2c4}}.front{{fill:#d9c09c}}.top{{fill:#b8936b}}
+.carcass{{fill:#f2f0ea}}.back{{fill:#e4e1d9}}.shelf{{fill:#ebe8e0}}.drawer{{fill:#efe2c4}}.front{{fill:#d9c09c}}.recess{{fill:#cdb18b}}.top{{fill:#b8936b}}
 .ghost{{fill:none;stroke:#999;stroke-dasharray:{dash:.1}}}
 .cup{{fill:none;stroke:#1667c4;stroke-dasharray:{dash:.1}}}.hole{{fill:#222;stroke:none}}
 .dim{{stroke:#1d5fbf;stroke-width:{lw:.2}}}.ext{{stroke:#1d5fbf;stroke-width:{thin:.2};opacity:.6}}
@@ -161,8 +161,16 @@ text{{fill:#1f1d1a}}.ttl{{font-weight:700}}
         let [bx, by, _] = p.box3d.size;
         s.rect(fx + x, fyv(y + by), bx, by, "front");
     }
+    // Routed Shaker recesses (outside face)
     for p in &fronts {
-        for o in &p.holes {
+        for k in p.pockets.iter().filter(|k| k.face == 2) {
+            let (xa, ya) = front_hole(p, k.x, k.y);
+            let (xb, yb) = front_hole(p, k.x + k.w, k.y + k.h);
+            s.rect(fx + xa.min(xb), fyv(ya.max(yb)), (xb - xa).abs(), (yb - ya).abs(), "recess");
+        }
+    }
+    for p in &fronts {
+        for o in p.holes.iter().filter(|o| o.edge.is_none()) {
             let (x, y) = front_hole(p, o.x, o.y);
             if o.dia >= 20.0 {
                 s.circle(fx + x, fyv(y), o.dia / 2.0, "cup");

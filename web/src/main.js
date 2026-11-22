@@ -244,7 +244,11 @@ function renderProps() {
         field("Front gap", s, "front_gap"), field("Edge band", s, "edge_band"),
         field("System line", s, "system_line"), field("Hinge cup inset", s, "hinge_cup_inset"),
         field("Slide clearance", s, "slide_clearance"), field("Handle c/c", s, "handle_spacing"),
-        field("Shelf setback", s, "shelf_setback")),
+        field("Shelf setback", s, "shelf_setback"),
+        field("Joinery", s, "joinery", "select", [["confirmat", "Confirmat"], ["dowel", "Dowel"]]),
+        field("Back", s, "back_mode", "select", [["applied", "Applied"], ["grooved", "In groove"]]),
+        s.back_mode === "grooved" ? field("Back inset", s, "back_inset") : null,
+        field("Groove depth", s, "groove_depth")),
       h("h3", {}, "Room"),
       h("div", { class: "grid2" }, field("Wall thickness", project.room, "thickness"), field("Height", project.room, "height")),
       h("div", { class: "row" },
@@ -254,7 +258,7 @@ function renderProps() {
       h("h3", {}, "Worktop"),
       h("div", { class: "grid2" }, field("Thickness", s, "worktop_thickness"), field("Overhang", s, "worktop_overhang")),
       h("h3", {}, "Shaker"),
-      h("div", { class: "grid2" }, field("Frame width", s, "shaker_frame"), field("Groove", s, "shaker_groove")),
+      h("div", { class: "grid2" }, field("Frame width", s, "shaker_frame"), field("Groove", s, "shaker_groove"), field("Routed depth", s, "routed_depth")),
       h("h3", {}, "Materials"),
       ...project.materials.map((m) => h("div", { class: "mat" },
         h("div", { class: "grid2" },
@@ -290,7 +294,7 @@ function renderProps() {
       h("div", { class: "grid2" },
         field("Doors", c, "doors", "select", [[0, "None"], [1, "1"], [2, "2"]]),
         field("Hinge", c, "hinge_side", "select", [["left", "Left"], ["right", "Right"]]),
-        field("Front style", c, "door_style", "select", [["slab", "Slab"], ["shaker", "Shaker"]]),
+        field("Front style", c, "door_style", "select", [["slab", "Slab"], ["shaker", "Shaker"], ["shaker_routed", "Shaker routed"]]),
         field("Blind corner", c, "blind_side", "select", [["none", "None"], ["left", "Left"], ["right", "Right"]]),
         blind ? [field("Blind width", c, "blind_width"), h("span")] : null,
         field("Shelves", c, "shelves", "int"),
@@ -300,7 +304,7 @@ function renderProps() {
       field("Drawers (front heights, top first)", c, "drawers", "list"),
     ] : null,
     c.kind === "dishwasher" ? h("div", { class: "grid2" },
-      field("Front style", c, "door_style", "select", [["slab", "Slab"], ["shaker", "Shaker"]]),
+      field("Front style", c, "door_style", "select", [["slab", "Slab"], ["shaker", "Shaker"], ["shaker_routed", "Shaker routed"]]),
       field("Handles", c, "handles", "check")) : null,
     c.kind === "base" ? [
       h("h3", {}, "Worktop cut-out"),
@@ -549,7 +553,24 @@ function partSvg(p, size = 260) {
     r.setAttribute("rx", c.r * s); r.setAttribute("fill", "#fff"); r.setAttribute("stroke", "#222");
     svg.append(r);
   }
+  for (const k of p.pockets || []) {
+    const r = document.createElementNS(ns, "rect");
+    r.setAttribute("x", X(k.x)); r.setAttribute("y", Y(k.y + k.h));
+    r.setAttribute("width", Math.max(1, k.w * s)); r.setAttribute("height", Math.max(1, k.h * s));
+    r.setAttribute("rx", k.r * s); r.setAttribute("fill", "rgba(0,0,0,.12)"); r.setAttribute("stroke", "#555");
+    if (k.face === 2) r.setAttribute("stroke-dasharray", "4 3");
+    svg.append(r);
+  }
   for (const o of p.holes) {
+    if (o.edge != null) {
+      const [dx, dy] = [[0, 1], [-1, 0], [0, -1], [1, 0]][o.edge];
+      const l = document.createElementNS(ns, "line");
+      l.setAttribute("x1", X(o.x)); l.setAttribute("y1", Y(o.y));
+      l.setAttribute("x2", X(o.x + dx * o.depth)); l.setAttribute("y2", Y(o.y + dy * o.depth));
+      l.setAttribute("stroke", "#d07a00"); l.setAttribute("stroke-width", Math.max(2, o.dia * s));
+      svg.append(l);
+      continue;
+    }
     const c = document.createElementNS(ns, "circle");
     c.setAttribute("cx", X(o.x)); c.setAttribute("cy", Y(o.y)); c.setAttribute("r", Math.max(1.2, (o.dia / 2) * s));
     c.setAttribute("fill", "none"); c.setAttribute("stroke", o.depth > 0 ? "#1667c4" : "#c42020");
@@ -574,6 +595,7 @@ function renderParts() {
         h("dt", {}, "Finished"), h("dd", {}, `${p.w} × ${p.h} × ${p.thickness}`),
         h("dt", {}, "Material"), h("dd", {}, matOf(p.material).name),
         h("dt", {}, "Bores"), h("dd", {}, summarizeHoles(p.holes)),
+      ...((p.pockets || []).length ? [h("dt", {}, "Pockets"), h("dd", {}, p.pockets.map((k) => `${k.w}×${k.h}×${k.depth}${k.face === 2 ? " (face 2)" : ""}`).join(", "))] : []),
       ...(p.cutouts || []).flatMap((c) => [h("dt", {}, c.kind === "hob" ? "Hob" : "Sink"),
         h("dd", {}, `${c.w} × ${c.h} R${c.r} at ${c.x}, ${c.y}`)])));
   };
@@ -592,7 +614,7 @@ function renderParts() {
 
 function summarizeHoles(holes) {
   const m = new Map();
-  for (const o of holes) { const k = `Ø${o.dia} ${o.depth > 0 ? o.depth + " deep" : "thru"}`; m.set(k, (m.get(k) || 0) + 1); }
+  for (const o of holes) { const k = `Ø${o.dia} ${o.edge != null ? "edge " + o.depth : o.depth > 0 ? o.depth + " deep" : "thru"}`; m.set(k, (m.get(k) || 0) + 1); }
   return [...m].map(([k, n]) => `${n}× ${k}`).join(", ") || "—";
 }
 
@@ -966,6 +988,7 @@ const applianceSel = new THREE.MeshStandardMaterial({ color: 0x8fa8d8, roughness
 const wallSelMat = new THREE.MeshStandardMaterial({ color: 0x8fb0ea, roughness: 1, transparent: true, opacity: 0.6, depthWrite: false });
 const glassMat = new THREE.MeshStandardMaterial({ color: 0xa9cbe6, roughness: 0.1, transparent: true, opacity: 0.35, depthWrite: false });
 const wallMat = new THREE.MeshStandardMaterial({ color: 0xdedad2, roughness: 1, transparent: true, opacity: 0.45, depthWrite: false });
+const recessMat = new THREE.MeshStandardMaterial({ color: 0x000000, transparent: true, opacity: 0.08, depthWrite: false });
 const hobMat = new THREE.MeshStandardMaterial({ color: 0x151617, roughness: 0.25, metalness: 0.2 });
 const steelMat = new THREE.MeshStandardMaterial({ color: 0xc9ccd0, roughness: 0.35, metalness: 0.7 });
 const bowlMat = new THREE.MeshStandardMaterial({ color: 0x6d7277, roughness: 0.5, metalness: 0.6 });
@@ -1000,6 +1023,14 @@ function updateScene() {
     m.userData.cab = p.cabinet;
     const l = new THREE.LineSegments(edges, edgeMat); l.scale.copy(m.scale); l.position.copy(m.position);
     g.add(m, l);
+    // Routed Shaker recess on the outside face (front parts are drawn inside face up, so x mirrors)
+    if (p.role === "front") for (const k of (p.pockets || []).filter((k) => k.face === 2)) {
+      const rc = new THREE.Mesh(box, recessMat);
+      rc.scale.set(k.w, k.h, 1);
+      rc.position.set(x + sx - (k.x + k.w / 2), y + k.y + k.h / 2, z + sz + 0.6);
+      const rl = new THREE.LineSegments(edges, edgeMat); rl.scale.copy(rc.scale); rl.position.copy(rc.position);
+      g.add(rc, rl);
+    }
     // Sink and hob on worktop cut-outs: drawing y runs from the front edge.
     for (const c of p.cutouts || []) {
       const cx = x + c.x + c.w / 2, cz = z + sz - (c.y + c.h / 2), top = y + sy;

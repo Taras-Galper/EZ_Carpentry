@@ -83,12 +83,20 @@ DXF layers (map these to tools/depths in AlphaCAM or any CAM):
 | `DRILL_D5_Z12` | Ø5 bore, 12 deep (shelf pins, hinge plates, slides) |
 | `DRILL_D35_Z13` | Ø35 hinge cup, 13 deep |
 | `DRILL_D7_THRU` | Ø7 through (confirmat), `DRILL_D5_THRU` handle holes |
+| `DRILL_D8_Z12` | Ø8 dowel bores in sides (dowel joinery) |
+| `HDRILL_D{d}_Z{z}` | Horizontal bore into an edge, mid-thickness: a line from the edge inwards, as long as the bore is deep (confirmat pilot Ø5 × 45, dowel Ø8 × 25) |
+| `POCKET_Z{z}` | Pocket / groove z deep in the drawn face (back-panel and drawer-bottom grooves) |
+| `F2_POCKET_Z{z}` | Pocket on the opposite face: flip the part (routed Shaker recess on the outside of a front) |
 | `SHEET` | Sheet boundary (sheet files) |
 | `LABEL` | Part names (sheet files) |
 
 ## Construction rules
 
-Frameless / System 32, applied back, full-overlay fronts.
+Frameless / System 32, full-overlay fronts. Parts are drawn inside face up (hinge cups, shelf pins, grooves on the drawn face).
+
+- Joinery (Project): confirmat — Ø7 through the side, Ø5 × 45 pilot into the panel edge — or dowels — Ø8 × 12 in the side, Ø8 × 25 into the edge. Every joint gets both halves, lined up.
+- Back (Project): applied over the back edges, or in a groove — sides, bottom and top (or back rail) are full depth and grooved (back inset from the back edge, groove depth), back panel = interior + 2 × groove depth − 1 mm.
+- Drawer boxes: bottom in a groove 10 mm up in sides, front and back; bottom = inside + 2 × groove depth − 1 mm.
 
 - Sides full height (toe-kick notch on base/tall), bottom and top between sides; base cabinets get two 100 mm top rails.
 - Back = full width × (height − toe kick), applied to the rear; sides and shelves are shortened by its thickness.
@@ -103,5 +111,6 @@ Frameless / System 32, applied back, full-overlay fronts.
 - Filler: front-material strip plus toe kick; joins worktop runs when under-worktop height.
 - End panels: finished side in front material outside the carcass, deep enough to cover the door edge, full height.
 - Blind corner: the blind side of the front is a fixed panel (blind width) that the return leg covers; one door fills the rest, hinged away from the blind side. Drawers are not built in blind corners.
+- Routed Shaker: one-piece MDF front with the recess (frame width, routed depth) on the outside face; machine it as a second-face operation.
 - Shaker fronts: two full-height stiles, two rails with tenons (= groove depth), and a panel from the cabinet's panel material. Bores go to whichever piece holds them; fronts smaller than 2 × frame + 60 stay slab.
 - Nesting: MaxRects best-short-side-fit with kerf and trim; grained materials keep grain along the sheet length.
