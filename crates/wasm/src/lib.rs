@@ -27,6 +27,14 @@ pub fn export_zip(json: &str, date: Option<String>) -> Result<Vec<u8>, JsError> 
     Ok(cw::export::bundle_dated(&p, &r, date.as_deref()))
 }
 
+/// Customer quote with pictures (data: URLs, e.g. renders of the 3D view).
+#[wasm_bindgen]
+pub fn quote_html(json: &str, date: Option<String>, images: Vec<String>) -> Result<String, JsError> {
+    let p = project(json)?;
+    let r = cw::compute(&p);
+    Ok(cw::export::quote::quote_html(&p, &cw::export::quote::quote(&p, &r), date.as_deref(), &images))
+}
+
 #[wasm_bindgen]
 pub fn packet_html(json: &str, date: Option<String>) -> Result<String, JsError> {
     let p = project(json)?;
@@ -48,7 +56,7 @@ pub fn export_one(json: &str, kind: &str, index: usize) -> Result<String, JsErro
         "labels_html" => cw::export::packet::labels_html(&p, &r),
         "quote" => serde_json::to_string(&cw::export::quote::quote(&p, &r)).unwrap_or_default(),
         "quote_csv" => cw::export::quote::quote_csv(&cw::export::quote::quote(&p, &r)),
-        "quote_html" => cw::export::quote::quote_html(&p, &cw::export::quote::quote(&p, &r), p.pricing.vat_pct),
+        "quote_html" => cw::export::quote::quote_html(&p, &cw::export::quote::quote(&p, &r), None, &[]),
         "obj" => cw::export::obj(&p, &r.build),
         "part_dxf" => cw::export::dxf::part_dxf(parts.get(index).ok_or_else(|| JsError::new("no such part"))?),
         "sheet_dxf" => cw::export::dxf::sheet_dxf(sheet()?, parts),

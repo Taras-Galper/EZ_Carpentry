@@ -332,9 +332,38 @@ fn fmt_money(cur: &str, v: f64) -> String {
     format!("{}{}{}.{}", if neg { "-" } else { "" }, cur, g, frac)
 }
 
-/// Printable customer quote (one self-contained HTML page).
-pub fn quote_html(project: &Project, q: &Quote, vat_pct: f64) -> String {
+/// Date `days` after an ISO date (YYYY-MM-DD); None if it does not parse.
+fn add_days(date: &str, days: u32) -> Option<String> {
+    let mut it = date.get(..10)?.split('-');
+    let (y, m, d): (i64, i64, i64) = (it.next()?.parse().ok()?, it.next()?.parse().ok()?, it.next()?.parse().ok()?);
+    // days from civil (Howard Hinnant)
+    let y2 = if m <= 2 { y - 1 } else { y };
+    let era = y2.div_euclid(400);
+    let yoe = y2 - era * 400;
+    let doy = (153 * (if m > 2 { m - 3 } else { m + 9 }) + 2) / 5 + d - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    let z = era * 146097 + doe + days as i64;
+    // civil from days
+    let era = z.div_euclid(146097);
+    let doe = z - era * 146097;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let dd = doy - (153 * mp + 2) / 5 + 1;
+    let mm = if mp < 10 { mp + 3 } else { mp - 9 };
+    let yy = yoe + era * 400 + if mm <= 2 { 1 } else { 0 };
+    Some(format!("{yy:04}-{mm:02}-{dd:02}"))
+}
+
+/// Printable customer quote (one self-contained HTML page): the shop's
+/// letterhead, the client, pictures of the design (data: URLs, e.g. 3D
+/// renders from the editor), priced items, totals, terms and a signature
+/// line. `date` (YYYY-MM-DD) also sets the valid-until date.
+pub fn quote_html(project: &Project, q: &Quote, date: Option<&str>, images: &[String]) -> String {
     let m = |v: f64| fmt_money(&q.currency, v);
+    let co = &project.pricing.company;
+    let cl = &project.client;
+    let lines = |parts: &[&str]| parts.iter().filter(|s| !s.trim().is_empty()).map(|s| esc(s.trim())).collect::<Vec<_>>().join("<br>");
     let mut rows = String::new();
     for (i, c) in q.items.iter().enumerate() {
         let _ = write!(
@@ -346,29 +375,67 @@ pub fn quote_html(project: &Project, q: &Quote, vat_pct: f64) -> String {
             m(c.price)
         );
     }
+    let logo = if co.logo.starts_with("data:image/") {
+        format!(r#"<img class=logo src="{}" alt="">"#, co.logo.replace('"', "%22"))
+    } else {
+        String::new()
+    };
+    let shop = lines(&[co.address.as_str(), co.phone.as_str(), co.email.as_str()]);
+    let head = if co.name.trim().is_empty() && logo.is_empty() {
+        String::new()
+    } else {
+        let solo = if logo.is_empty() { " solo" } else { "" };
+        format!(r#"<header>{logo}<div class="co{solo}"><b>{}</b><br>{shop}</div></header>"#, esc(&co.name))
+    };
+    let mut meta = vec![];
+    if let Some(d) = date {
+        meta.push(format!("Date {}", esc(d)));
+        if co.valid_days > 0 {
+            if let Some(v) = add_days(d, co.valid_days) {
+                meta.push(format!("Valid until {v}"));
+            }
+        }
+    }
+    let client = lines(&[cl.name.as_str(), cl.address.as_str(), cl.phone.as_str(), cl.email.as_str()]);
+    let client = if client.is_empty() { String::new() } else { format!("<div class=for><span>For</span><br>{client}</div>") };
+    let pics: String = images
+        .iter()
+        .filter(|u| u.starts_with("data:image/"))
+        .map(|u| format!(r#"<img class=pic src="{}" alt="">"#, u.replace('"', "%22")))
+        .collect();
+    let pics = if pics.is_empty() { String::new() } else { format!("<div class=pics>{pics}</div>") };
+    let terms: String = co.terms.lines().filter(|l| !l.trim().is_empty()).map(|l| format!("<p>{}</p>", esc(l.trim()))).collect();
+    let terms = if terms.is_empty() { String::new() } else { format!("<section class=terms><h3>Terms</h3>{terms}</section>") };
     format!(
         r#"<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Quote — {name}</title>
 <style>
 body{{font:14px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif;color:#1f1d1a;max-width:820px;margin:40px auto;padding:0 24px}}
-h1{{font-size:24px;margin:0 0 4px}}.sub{{color:#7a746a;margin-bottom:28px}}
+header{{display:flex;justify-content:space-between;align-items:flex-start;gap:24px;padding-bottom:18px;margin-bottom:24px;border-bottom:2px solid #1f1d1a}}
+.logo{{max-height:72px;max-width:260px}}.co{{text-align:right;color:#4a453e}}.co.solo{{text-align:left}}.co b{{color:#1f1d1a;font-size:16px}}
+.top{{display:flex;justify-content:space-between;gap:24px;margin-bottom:22px}}
+h1{{font-size:24px;margin:0 0 4px}}.sub{{color:#7a746a}}.for span{{color:#7a746a;font-size:12px;text-transform:uppercase;letter-spacing:.05em}}
+.pics{{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px;margin:0 0 24px}}.pic{{width:100%;border-radius:6px;border:1px solid #e3dfd6}}
 table{{width:100%;border-collapse:collapse}}td,th{{padding:10px 8px;border-bottom:1px solid #e3dfd6;vertical-align:top;text-align:left}}
 th{{color:#7a746a;font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.05em}}
 td span{{color:#7a746a;font-size:13px}}.n{{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}}
 tfoot td{{border:none;padding:6px 8px}}tfoot tr.t td{{font-size:18px;font-weight:700;border-top:2px solid #1f1d1a;padding-top:10px}}
-@media print{{body{{margin:0}}}}
+.terms{{margin-top:28px;color:#4a453e}}.terms h3{{font-size:13px;text-transform:uppercase;letter-spacing:.05em;color:#7a746a;margin:0 0 6px}}.terms p{{margin:0 0 4px}}
+.sign{{display:flex;gap:40px;margin-top:48px}}.sign div{{flex:1;border-top:1px solid #1f1d1a;padding-top:6px;color:#7a746a;font-size:12px}}
+@media print{{body{{margin:0}}tr,.pic{{break-inside:avoid}}}}
 </style></head><body>
-<h1>{name}</h1><div class="sub">Quote · {n} items</div>
-<table><thead><tr><th>#</th><th>Item</th><th class=n>Price</th></tr></thead><tbody>{rows}</tbody>
+{head}<div class=top><div><h1>{name}</h1><div class="sub">Quote · {n} items{meta}</div></div>{client}</div>
+{pics}<table><thead><tr><th>#</th><th>Item</th><th class=n>Price</th></tr></thead><tbody>{rows}</tbody>
 <tfoot><tr><td></td><td class=n>Subtotal</td><td class=n>{net}</td></tr>
 <tr><td></td><td class=n>VAT {vat_pct}%</td><td class=n>{vat}</td></tr>
 <tr class=t><td></td><td class=n>Total</td><td class=n>{total}</td></tr></tfoot></table>
+{terms}<div class=sign><div>Accepted — name and signature</div><div>Date</div></div>
 </body></html>"#,
         name = esc(&project.name),
         n = q.items.len(),
-        rows = rows,
+        meta = meta.iter().map(|s| format!(" · {s}")).collect::<String>(),
         net = m(q.net),
         vat = m(q.vat),
         total = m(q.total),
-        vat_pct = vat_pct,
+        vat_pct = project.pricing.vat_pct,
     )
 }

@@ -1028,4 +1028,21 @@ mod tests {
         let stile_cups = r.build.parts.iter().filter(|q| q.cabinet == "w3").flat_map(|q| q.holes.iter()).filter(|h| h.dia == 35.0).count();
         assert_eq!(stile_cups, 2);
     }
+
+    #[test]
+    fn customer_quote_document() {
+        let mut p = sample_kitchen();
+        p.pricing.company.name = "Galper & Co".into();
+        p.pricing.company.logo = "data:image/png;base64,AAAA".into();
+        p.pricing.company.valid_days = 30;
+        p.client.name = "Dana <Levi>".into();
+        let r = compute(&p);
+        let q = export::quote::quote(&p, &r);
+        let html = export::quote::quote_html(&p, &q, Some("2026-12-15"), &["data:image/png;base64,BBBB".into(), "https://x/y.png".into()]);
+        assert!(html.contains("Galper &amp; Co") && html.contains("Dana &lt;Levi&gt;"));
+        assert!(html.contains("Valid until 2027-01-14"));
+        assert_eq!(html.matches("class=pic ").count(), 1, "only data: images");
+        assert!(html.contains("class=logo"));
+        assert!(html.contains("50% deposit"));
+    }
 }

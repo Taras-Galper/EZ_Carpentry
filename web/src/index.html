@@ -68,6 +68,7 @@ figcaption{display:flex;gap:6px;align-items:center;padding:6px 8px;border-top:1p
 .wlabel.on{background:var(--acc);border-color:var(--acc);color:#fff}
 .vhandle{position:absolute;left:0;top:0;width:12px;height:12px;background:#fff;border:2px solid var(--acc);border-radius:2px;pointer-events:auto;cursor:move}
 .vhandle.fixed{background:var(--acc)}
+.qprices .logo img{max-height:40px;max-width:160px;margin-right:auto}.qprices textarea{width:100%;font:inherit;padding:6px;border:1px solid var(--line);border-radius:6px;resize:vertical}
 .snapchip{position:absolute;left:0;top:0;transform:translate(-50%,-50%);display:flex;gap:8px;align-items:center;padding:3px 9px;border-radius:12px;background:#2f6fe4;color:#fff;font-size:12px;font-variant-numeric:tabular-nums;white-space:nowrap;pointer-events:none;box-shadow:0 2px 6px rgba(0,0,0,.2)}.snapchip b{font-weight:600}
 .seg{display:flex;border:1px solid var(--line);border-radius:6px;overflow:hidden}.seg button{flex:1;border:none;border-radius:0;padding:6px 4px;color:var(--mute);background:#fff}.seg button.on{background:var(--ink);color:#fff}.vhandle.mid{border-radius:50%;pointer-events:none}
 #dial{position:absolute;left:10px;bottom:10px;z-index:2;display:flex;gap:4px;background:#fff;border:1px solid var(--line);border-radius:8px;padding:5px 6px;box-shadow:0 1px 4px rgba(0,0,0,.08)}
@@ -193,7 +194,7 @@ footer#status{display:flex;gap:16px;padding:6px 12px;border-top:1px solid var(--
       <span id="coords"></span>
       <span id="views"><button data-view="3d" class="on">3D</button><button data-view="plan">Plan</button><button data-view="front">Front</button></span>
       <label><input id="fronts" type="checkbox" checked>Fronts</label>
-      <button id="fit">Fit</button>
+      <button id="fit">Fit</button><button id="shot" title="Save a picture of the view">Image</button>
     </nav>
     <div class="view" id="v-3d"><div id="overlay"></div><svg id="drawsvg"></svg><div id="plantools" hidden></div><div id="viewbar"></div>
       <div id="dial" hidden title="Type a value, or +n / -n to move by n">

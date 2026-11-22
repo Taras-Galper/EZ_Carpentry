@@ -56,6 +56,8 @@ One program per nested sheet, plain ISO / Fanuc-style (`G21 G90`, `T M6`, `S M3`
 
 ## Quoting
 
+*Customer quote* (Quote tab) saves a printable page: your letterhead (Company: name, contact lines, logo, terms, days valid — kept with the shop defaults), the client (Project panel), today's date and valid-until date, a 3D picture of the job, the priced items and totals, terms and a signature line. *Image* (next to *Fit*) saves a PNG of the current view; renders leave out the walls in front of the camera, the floor grid and the selection.
+
 Quote tab: rates (markup, VAT, labour per hour, CNC minutes per sheet, assembly and install hours per cabinet, edge band per metre), price per sheet for each material, and unit price per hardware item.
 Cost = whole sheets used × sheet price + edge band + hardware + labour. Each cabinet and each worktop is priced at its share of that cost (material by part area, CNC time by area, hardware and assembly by cabinet) plus markup; VAT is added to the subtotal.
 Prices are in `project.json` under `pricing`; sample prices are placeholders.

@@ -312,7 +312,7 @@ pub fn files_dated(project: &Project, report: &Report, date: Option<&str>) -> Ve
         ("shop_packet.html".into(), packet::packet_html(project, report, date).into_bytes()),
         ("labels.html".into(), packet::labels_html(project, report).into_bytes()),
         ("quote.csv".into(), quote::quote_csv(&quote::quote(project, report)).into_bytes()),
-        ("quote.html".into(), quote::quote_html(project, &quote::quote(project, report), project.pricing.vat_pct).into_bytes()),
+        ("quote.html".into(), quote::quote_html(project, &quote::quote(project, report), date, &[]).into_bytes()),
         ("model.obj".into(), obj(project, b).into_bytes()),
     ];
     for p in &b.parts {

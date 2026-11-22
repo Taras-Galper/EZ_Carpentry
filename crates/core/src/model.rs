@@ -13,6 +13,48 @@ pub struct Project {
     pub pricing: Pricing,
     pub room: crate::room::Room,
     pub cnc: crate::export::gcode::Cnc,
+    /// Who the job is for (printed on the customer quote).
+    pub client: Contact,
+}
+
+/// Name and contact lines for the customer quote.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Contact {
+    pub name: String,
+    pub phone: String,
+    pub email: String,
+    pub address: String,
+}
+
+/// The shop, as shown on customer quotes (kept with the shop defaults).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Company {
+    pub name: String,
+    pub phone: String,
+    pub email: String,
+    pub address: String,
+    /// Logo as a data: URL (PNG / JPEG / SVG); empty for none.
+    pub logo: String,
+    /// Payment terms, lead time and so on; one paragraph per line.
+    pub terms: String,
+    /// Days the quote stays valid.
+    pub valid_days: u32,
+}
+
+impl Default for Company {
+    fn default() -> Self {
+        Self {
+            name: String::new(),
+            phone: String::new(),
+            email: String::new(),
+            address: String::new(),
+            logo: String::new(),
+            terms: "50% deposit on order, balance on installation.\nPrices include supply and installation.".into(),
+            valid_days: 30,
+        }
+    }
 }
 
 /// Prices for quoting. Currency is just a label.
@@ -34,6 +76,7 @@ pub struct Pricing {
     pub vat_pct: f64,
     /// Unit price by hardware item name; missing items use a default.
     pub hardware: BTreeMap<String, f64>,
+    pub company: Company,
 }
 
 impl Default for Pricing {
@@ -48,6 +91,7 @@ impl Default for Pricing {
             markup_pct: 30.0,
             vat_pct: 18.0,
             hardware: BTreeMap::new(),
+            company: Company::default(),
         }
     }
 }
@@ -607,6 +651,7 @@ pub fn sample_kitchen() -> Project {
         pricing: Pricing::default(),
         room,
         cnc: Default::default(),
+        client: Contact::default(),
     }
 }
 

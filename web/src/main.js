@@ -474,6 +474,10 @@ function renderProps() {
     put(
       h("h3", {}, "Project"),
       field("Name", project, "name", "text"),
+      h("h3", {}, "Client"),
+      field("Name", project.client, "name", "text"),
+      h("div", { class: "grid2" }, field("Phone", project.client, "phone", "text"), field("Email", project.client, "email", "text")),
+      field("Address", project.client, "address", "text"),
       h("h3", {}, "Machining"),
       h("div", { class: "grid2" },
         field("Kerf", s, "kerf"), field("Sheet trim", s, "sheet_trim"),
@@ -798,7 +802,10 @@ function renderQuote() {
   const fmt = (n) => q.currency + n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const doc = h("div", { class: "qdoc" },
     h("div", { class: "row" }, h("h2", {}, project.name),
-      h("button", { onclick: () => saveFile(slug(project.name) + "_quote.html", cw.export_one(json, "quote_html", 0)) }, "Customer quote"),
+      h("button", { class: "pri", onclick: () => {
+        const pics = project.cabinets.length ? [snapshot(1600, 1000, "overview")] : [];
+        saveFile(slug(project.name) + "_quote.html", cw.quote_html(json, new Date().toISOString().slice(0, 10), pics));
+      } }, "Customer quote"),
       h("button", { onclick: () => saveFile(slug(project.name) + "_quote.csv", cw.export_one(json, "quote_csv", 0)) }, "CSV")),
     h("table", {},
       h("thead", {}, h("tr", {}, h("th", {}, "Item"), h("th", { class: "n" }, "Cost"), h("th", { class: "n" }, "Price"))),
@@ -832,7 +839,23 @@ function renderQuote() {
     } });
     return h("label", {}, h("span", {}, name), input);
   };
+  const co = pr.company;
+  const logoIn = h("input", { type: "file", accept: "image/png,image/jpeg,image/svg+xml", hidden: true, onchange: () => {
+    const f = logoIn.files[0]; if (!f) return;
+    if (f.size > 400000) { toast("Logo over 400 kB"); return; }
+    const rd = new FileReader(); rd.onload = () => { co.logo = rd.result; recompute(); }; rd.readAsDataURL(f);
+  } });
+  const terms = h("textarea", { rows: 4, onchange: () => { co.terms = terms.value; recompute(); } }, co.terms);
   const prices = h("div", { class: "qprices" },
+    h("h3", {}, "Company"),
+    field("Name", co, "name", "text"),
+    h("div", { class: "grid2" }, field("Phone", co, "phone", "text"), field("Email", co, "email", "text")),
+    field("Address", co, "address", "text"),
+    h("div", { class: "row logo" }, co.logo ? h("img", { src: co.logo, alt: "" }) : h("span", { class: "grow mute" }, "No logo"),
+      h("button", { onclick: () => logoIn.click() }, co.logo ? "Change logo" : "Add logo"),
+      co.logo ? h("button", { onclick: () => { co.logo = ""; recompute(); } }, "×") : null, logoIn),
+    h("label", {}, h("span", {}, "Terms"), terms),
+    field("Valid days", co, "valid_days", "int"),
     h("h3", {}, "Rates"),
     h("div", { class: "grid2" },
       field("Currency", pr, "currency", "text"), field("Markup %", pr, "markup_pct"),
@@ -1008,6 +1031,7 @@ function renderHardware() {
 let renderer, scene, camera, controls, root, framed = false;
 let persp, ortho, view = "3d"; // "3d" | "plan" | "front"
 let roomGroup, previewLine, aimAt, floorAt, vdrag = null;
+let grid;
 let gizmo, gizmoProxy; // TransformControls on a handle at the selected cabinet's bottom-front centre
 const overlayItems = []; // { el, pos: Vector3, kind: "label" | "handle" }
 const groups = new Map();
@@ -1026,7 +1050,7 @@ function setup3d() {
   controls.enableDamping = true;
   scene.add(new THREE.HemisphereLight(0xffffff, 0x8a8478, 1.6));
   const sun = new THREE.DirectionalLight(0xffffff, 1.6); sun.position.set(-2000, 4000, 5000); scene.add(sun);
-  const grid = new THREE.GridHelper(10000, 100, 0xcfcac0, 0xe2ded6); scene.add(grid);
+  grid = new THREE.GridHelper(10000, 100, 0xcfcac0, 0xe2ded6); scene.add(grid);
   root = new THREE.Group(); scene.add(root);
   roomGroup = new THREE.Group(); scene.add(roomGroup);
   previewLine = new THREE.Line(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: 0x2f6fe4 }));
@@ -1496,6 +1520,43 @@ function updateScene() {
     gizmo.showY = view !== "plan";
   } else gizmo.detach();
 }
+// Picture of the model as a PNG data URL, w x h pixels, without selection
+// tint or gizmo. cam: "view" (the current camera) or "overview" (front-left,
+// slightly above, framing everything).
+function snapshot(w, h, cam = "view") {
+  const keep = { selected, sel: [...selSet], size: renderer.getSize(new THREE.Vector2()), ratio: renderer.getPixelRatio() };
+  selected = null; selSet.clear(); updateScene();
+  gizmo.getHelper().visible = false;
+  if (snapCue) snapCue.visible = false;
+  let c = camera;
+  if (cam === "overview" || view !== "3d") {
+    const b = new THREE.Box3().setFromObject(root);
+    if (b.isEmpty()) b.set(new THREE.Vector3(0, 0, 0), new THREE.Vector3(3000, 2200, 600));
+    const ctr = b.getCenter(new THREE.Vector3()), size = b.getSize(new THREE.Vector3());
+    c = new THREE.PerspectiveCamera(35, w / h, 10, 50000);
+    const dist = Math.max(size.x, size.y * 1.6, size.z) * 1.55;
+    c.position.set(ctr.x - dist * 0.35, ctr.y + dist * 0.38, ctr.z + dist);
+    c.lookAt(ctr);
+  } else {
+    c = camera.clone(); c.aspect = w / h; c.updateProjectionMatrix();
+  }
+  // walls between the camera and the room are left out, and the floor grid
+  const hidden = [grid, ...roomGroup.children.filter((g) => g.userData.w && wallLocal(g.userData.w, c.position.x, c.position.z)[1] < 0)];
+  for (const o of hidden) o.visible = false;
+  renderer.setPixelRatio(1);
+  renderer.setSize(w, h, false);
+  renderer.render(scene, c);
+  for (const o of hidden) o.visible = true;
+  const url = renderer.domElement.toDataURL("image/png");
+  renderer.setPixelRatio(keep.ratio);
+  renderer.setSize(keep.size.x, keep.size.y);
+  selected = keep.selected; for (const id of keep.sel) selSet.add(id); selAnchor = selected;
+  gizmo.getHelper().visible = true;
+  updateScene(); resize();
+  return url;
+}
+const dataUrlBytes = (u) => Uint8Array.from(atob(u.split(",")[1]), (ch) => ch.charCodeAt(0));
+
 function frame() {
   // Fit cabinets and walls; an empty project frames a 4 x 3 m floor.
   const b = new THREE.Box3().setFromObject(root).union(new THREE.Box3().setFromObject(roomGroup));
@@ -1605,6 +1666,7 @@ async function main() {
   $$("#tabs button[data-tab]").forEach((b) => (b.onclick = () => { tab = b.dataset.tab; renderTab(); }));
   $("#fronts").onchange = (e) => { showFronts = e.target.checked; updateScene(); };
   $("#fit").onclick = frame;
+  $("#shot").onclick = () => saveFile(slug(project.name) + ".png", dataUrlBytes(snapshot(2400, 1500)));
   $$("#views button").forEach((b) => (b.onclick = () => setView(b.dataset.view)));
   $("#undo").onclick = undo;
   $$("#mbar button").forEach((b) => (b.onclick = () => openSheet(b.dataset.sheet)));
@@ -1617,6 +1679,7 @@ async function main() {
     const anchor = phone.matches ? null : $("#tabs label");
     into.insertBefore($("#views"), anchor);
     into.insertBefore($("#fit"), phone.matches ? null : anchor.nextSibling);
+    into.insertBefore($("#shot"), $("#fit").nextSibling);
   };
   placeViewSwitch();
   phone.addEventListener("change", () => { openSheet(null); header.classList.remove("open"); placeViewSwitch(); resize(); });
