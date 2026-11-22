@@ -35,7 +35,7 @@ pub fn compute(project: &Project) -> Report {
     let nesting = nest::nest(project, &build.parts);
     let mut sheets: Vec<(String, usize)> = vec![];
     for s in &nesting.sheets {
-        let name = project.material(&s.material).name;
+        let name = project.material(&s.material).name + if s.offcut { " offcut" } else { "" };
         match sheets.iter_mut().find(|x| x.0 == name) {
             Some(x) => x.1 += 1,
             None => sheets.push((name, 1)),
@@ -1044,5 +1044,113 @@ mod tests {
         assert_eq!(html.matches("class=pic ").count(), 1, "only data: images");
         assert!(html.contains("class=logo"));
         assert!(html.contains("50% deposit"));
+    }
+
+    /// Parts on each sheet keep the cutter spacing from every other part's
+    /// real outline (so parts may sit in an L's notch, never on the L).
+    fn assert_outlines_apart(p: &Project, r: &Report) {
+        let k = p.settings.kerf.max(p.cnc.router.dia) - 1e-6;
+        for s in &r.nesting.sheets {
+            // each part's outline as sheet-space rectangles (L = 2 rects)
+            let rects: Vec<Vec<[f64; 4]>> = s
+                .placements
+                .iter()
+                .map(|pl| {
+                    let q = &r.build.parts[pl.part];
+                    let mut boxes = vec![[0.0, 0.0, q.w, q.h]];
+                    if q.outline.len() == 6 {
+                        // split the L along its inner vertex: two rectangles from the outline's x / y values
+                        let xs: Vec<f64> = q.outline.iter().map(|v| v[0]).collect();
+                        let ys: Vec<f64> = q.outline.iter().map(|v| v[1]).collect();
+                        let xi = xs.iter().copied().find(|x| *x > 0.01 && *x < q.w - 0.01).unwrap();
+                        let yi = ys.iter().copied().find(|y| *y > 0.01 && *y < q.h - 0.01).unwrap();
+                        let inside = |x: f64, y: f64| {
+                            let o = &q.outline;
+                            let mut c = false;
+                            for i in 0..o.len() {
+                                let (a, b) = (o[i], o[(i + 1) % o.len()]);
+                                if (a[1] > y) != (b[1] > y) && x < (b[0] - a[0]) * (y - a[1]) / (b[1] - a[1]) + a[0] {
+                                    c = !c;
+                                }
+                            }
+                            c
+                        };
+                        let quads = [[0.0, 0.0, xi, yi], [xi, 0.0, q.w, yi], [0.0, yi, xi, q.h], [xi, yi, q.w, q.h]];
+                        boxes = quads.into_iter().filter(|b| inside((b[0] + b[2]) / 2.0, (b[1] + b[3]) / 2.0)).collect();
+                    }
+                    boxes
+                        .into_iter()
+                        .map(|b| {
+                            let (a, c) = (pl.map(q.w, b[0], b[1]), pl.map(q.w, b[2], b[3]));
+                            [a.0.min(c.0), a.1.min(c.1), a.0.max(c.0), a.1.max(c.1)]
+                        })
+                        .collect()
+                })
+                .collect();
+            for i in 0..rects.len() {
+                for j in i + 1..rects.len() {
+                    for a in &rects[i] {
+                        for b in &rects[j] {
+                            let sep = a[2] + k <= b[0] || b[2] + k <= a[0] || a[3] + k <= b[1] || b[3] + k <= a[1];
+                            assert!(sep, "parts {} and {} too close on {}", s.placements[i].part, s.placements[j].part, s.material);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn small_parts_nest_into_l_notches() {
+        let mut p = l_kitchen();
+        // a few extra small cabinets so there are small carcass parts to fill notches
+        for k in 0..4 {
+            p.cabinets.push(Cabinet {
+                id: format!("s{k}"),
+                x: 100.0 + 300.0 * k as f64,
+                width: 300.0,
+                kind: CabinetKind::Wall,
+                elevation: 1450.0,
+                height: 400.0,
+                depth: 300.0,
+                ..Cabinet::default()
+            });
+        }
+        let r = compute(&p);
+        assert_outlines_apart(&p, &r);
+        let bottom = r.build.parts.iter().position(|q| q.id == "lc-bottom").unwrap();
+        let (s, pl) = r.nesting.sheets.iter().find_map(|s| s.placements.iter().find(|pl| pl.part == bottom).map(|pl| (s, pl))).unwrap();
+        let in_notch = s
+            .placements
+            .iter()
+            .filter(|o| {
+                o.part != bottom
+                    && o.x >= pl.x - 1e-6
+                    && o.y >= pl.y - 1e-6
+                    && o.x + o.w <= pl.x + pl.w + 1e-6
+                    && o.y + o.h <= pl.y + pl.h + 1e-6
+            })
+            .count();
+        assert!(in_notch > 0, "nothing placed in the L bottom's notch");
+    }
+
+    #[test]
+    fn stock_offcuts_are_used_first_and_free() {
+        let mut p = sample_kitchen();
+        let r0 = compute(&p);
+        let q0 = export::quote::quote(&p, &r0);
+        let mi = p.materials.iter().position(|m| m.id == "carcass").unwrap();
+        p.materials[mi].offcuts = vec![[1400.0, 900.0], [300.0, 100.0]];
+        let r = compute(&p);
+        assert_outlines_apart(&p, &r);
+        let off: Vec<_> = r.nesting.sheets.iter().filter(|s| s.offcut).collect();
+        assert_eq!(off.len(), 1, "the 300 x 100 offcut fits nothing and is left out");
+        assert_eq!((off[0].length, off[0].width), (1400.0, 900.0));
+        assert!(off[0].placements.iter().all(|pl| pl.x + pl.w <= 1400.0 - off[0].trim + 1e-6 && pl.y + pl.h <= 900.0 - off[0].trim + 1e-6));
+        let q = export::quote::quote(&p, &r);
+        let sheets = |q: &export::quote::Quote| {
+            q.lines.iter().filter(|l| l.group == "Material" && l.item == "White melamine 18").map(|l| l.qty).sum::<f64>()
+        };
+        assert!(sheets(&q) <= sheets(&q0), "{} vs {}", sheets(&q), sheets(&q0));
     }
 }

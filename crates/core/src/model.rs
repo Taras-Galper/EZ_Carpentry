@@ -215,6 +215,9 @@ pub struct Material {
     pub color: String,
     /// Price per sheet (or worktop blank).
     pub price: f64,
+    /// Offcuts in stock, [length, width]: nested into before new sheets,
+    /// and not charged.
+    pub offcuts: Vec<[f64; 2]>,
 }
 
 impl Default for Material {
@@ -228,6 +231,7 @@ impl Default for Material {
             grain: false,
             color: "#eeeeea".into(),
             price: 350.0,
+            offcuts: vec![],
         }
     }
 }
@@ -514,6 +518,7 @@ pub fn default_materials() -> Vec<Material> {
             grain: false,
             color: "#e4e2dc".into(),
             price: 120.0,
+            offcuts: vec![],
         },
         Material {
             id: "front".into(),
@@ -524,6 +529,7 @@ pub fn default_materials() -> Vec<Material> {
             grain: true,
             color: "#c49a6c".into(),
             price: 900.0,
+            offcuts: vec![],
         },
         Material {
             id: "drawer".into(),
@@ -534,6 +540,7 @@ pub fn default_materials() -> Vec<Material> {
             grain: true,
             color: "#e8d3a8".into(),
             price: 380.0,
+            offcuts: vec![],
         },
         Material {
             id: "panel".into(),
@@ -544,6 +551,7 @@ pub fn default_materials() -> Vec<Material> {
             grain: true,
             color: "#b98e60".into(),
             price: 450.0,
+            offcuts: vec![],
         },
         Material {
             id: "top".into(),
@@ -554,6 +562,7 @@ pub fn default_materials() -> Vec<Material> {
             grain: true,
             color: "#9c7350".into(),
             price: 1600.0,
+            offcuts: vec![],
         },
     ]
 }

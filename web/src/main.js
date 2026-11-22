@@ -520,6 +520,7 @@ function renderProps() {
             field("Name", m, "name", "text"), field("Colour", m, "color", "text"),
             field("Thickness", m, "thickness"), field("Grain", m, "grain", "check"),
             field("Sheet L", m, "sheet_length"), field("Sheet W", m, "sheet_width")),
+          offcutField(m),
           h("div", { class: "row" }, h("span", { class: "grow mute" }, m.id),
             h("button", { class: "danger", disabled: used, title: used ? "In use" : null, onclick: () => { project.materials = project.materials.filter((x) => x !== m); recompute(); } }, "Delete")));
       }),
@@ -594,6 +595,15 @@ function renderProps() {
   );
 }
 
+// Stock offcuts as "L×W, L×W" (x or × or *).
+function offcutField(m) {
+  const show = (m.offcuts || []).map(([l, w]) => `${l}×${w}`).join(", ");
+  const input = h("input", { type: "text", value: show, placeholder: "e.g. 1200×600, 800×400", onchange: () => {
+    const list = input.value.split(/[,;]+/).map((t) => t.trim().split(/\s*[x×*]\s*/i).map(Number)).filter((p) => p.length === 2 && p.every((v) => v > 0));
+    m.offcuts = list; recompute();
+  } });
+  return h("label", {}, h("span", {}, "Offcuts in stock"), input);
+}
 function toggleSel(id) {
   if (id === selected) {
     const next = [...selSet][0];
@@ -1004,7 +1014,7 @@ function renderSheets() {
     const name = `${String(i + 1).padStart(2, "0")}_${slug(s.material)}`;
     v.append(h("figure", {}, img,
       h("figcaption", {},
-        h("span", {}, `#${i + 1} ${matOf(s.material).name} · ${s.placements.length} parts · ${s.yield_pct}%`),
+        h("span", {}, `#${i + 1} ${matOf(s.material).name}${s.offcut ? ` · offcut ${s.length}×${s.width}` : ""} · ${s.placements.length} parts · ${s.yield_pct}%`),
         h("button", { onclick: () => saveFile(name + ".dxf", cw.export_one(json, "sheet_dxf", i)) }, "DXF"),
         h("button", { onclick: () => saveFile(name + ".nc", cw.export_one(json, "sheet_nc", i)) }, "NC"),
         h("button", { onclick: () => saveFile(name + ".svg", svg) }, "SVG"))));

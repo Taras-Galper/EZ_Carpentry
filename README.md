@@ -154,4 +154,6 @@ Frameless / System 32, full-overlay fronts. Parts are drawn inside face up (hing
 - Glass (any carcass cabinet): doors become five-piece frames in the front material, whatever the front style; the glass (4 mm, the panel size) is listed with the hardware and shown in 3D, not cut. Drawer fronts are unchanged.
 - Routed Shaker: one-piece MDF front with the recess (frame width, routed depth) on the outside face; machine it as a second-face operation.
 - Shaker fronts: two full-height stiles, two rails with tenons (= groove depth), and a panel from the cabinet's panel material. Bores go to whichever piece holds them; fronts smaller than 2 × frame + 60 stay slab.
+- Offcuts: list the offcuts you have per material (Project & materials, "1200×600, 800×400"); nesting fills them first (smallest first) and they cost nothing in the quote. Unused offcuts are left out.
+- L-shaped panels: their notch is free space on the sheet, so smaller parts can be nested into it.
 - Nesting: MaxRects best-short-side-fit with kerf and trim; grained materials keep grain along the sheet length.

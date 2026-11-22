@@ -37,6 +37,9 @@ pub struct Sheet {
     pub placements: Vec<Placement>,
     /// Fraction of usable area covered by parts.
     pub yield_pct: f64,
+    /// An offcut from stock (not bought, not charged).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub offcut: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Default)]
@@ -66,11 +69,13 @@ impl R {
 struct Bin {
     free: Vec<R>,
     placed: Vec<Placement>,
+    /// Stock offcut index, or None for a new sheet.
+    offcut: Option<[f64; 2]>,
 }
 
 impl Bin {
     fn new(w: f64, h: f64) -> Self {
-        Self { free: vec![R { x: 0.0, y: 0.0, w, h }], placed: vec![] }
+        Self { free: vec![R { x: 0.0, y: 0.0, w, h }], placed: vec![], offcut: None }
     }
 
     /// Best short side fit; returns (score, rect, rotated).
@@ -128,6 +133,57 @@ impl Bin {
     }
 }
 
+/// Area of a part's outline (shoelace).
+fn part_area(p: &Part) -> f64 {
+    let o = &p.outline;
+    let n = o.len();
+    if n < 3 {
+        return p.w * p.h;
+    }
+    ((0..n).map(|i| o[i][0] * o[(i + 1) % n][1] - o[(i + 1) % n][0] * o[i][1]).sum::<f64>() / 2.0).abs()
+}
+
+/// Empty corners of a non-rectangular part's bounding box (the notch of an
+/// L), in sheet coordinates, free for smaller parts.
+fn notches(p: &Part, pl: &Placement) -> Vec<R> {
+    let o = &p.outline;
+    if o.len() <= 4 {
+        return vec![];
+    }
+    let inside = |x: f64, y: f64| {
+        let mut c = false;
+        for i in 0..o.len() {
+            let (a, b) = (o[i], o[(i + 1) % o.len()]);
+            if (a[1] > y) != (b[1] > y) && x < (b[0] - a[0]) * (y - a[1]) / (b[1] - a[1]) + a[0] {
+                c = !c;
+            }
+        }
+        c
+    };
+    let mut out = vec![];
+    for (cx, cy) in [(0.0, 0.0), (p.w, 0.0), (p.w, p.h), (0.0, p.h)] {
+        if o.iter().any(|v| (v[0] - cx).abs() < 0.01 && (v[1] - cy).abs() < 0.01) {
+            continue; // the outline reaches this corner
+        }
+        // the notch runs from the corner to the nearest inner vertex
+        let Some(v) = o
+            .iter()
+            .filter(|v| (v[0] - cx).abs() > 0.01 && (v[1] - cy).abs() > 0.01)
+            .min_by(|a, b| ((a[0] - cx).abs() + (a[1] - cy).abs()).total_cmp(&((b[0] - cx).abs() + (b[1] - cy).abs())))
+        else {
+            continue;
+        };
+        let (x0, x1) = (cx.min(v[0]), cx.max(v[0]));
+        let (y0, y1) = (cy.min(v[1]), cy.max(v[1]));
+        if inside((x0 + x1) / 2.0, (y0 + y1) / 2.0) || x1 - x0 < 50.0 || y1 - y0 < 50.0 {
+            continue;
+        }
+        let (a, b) = (pl.map(p.w, x0, y0), pl.map(p.w, x1, y1));
+        out.push(R { x: a.0.min(b.0), y: a.1.min(b.1), w: (a.0 - b.0).abs(), h: (a.1 - b.1).abs() });
+    }
+    out
+}
+
 pub fn nest(project: &Project, parts: &[Part]) -> Nesting {
     let s = &project.settings;
     let mut out = Nesting::default();
@@ -158,7 +214,18 @@ pub fn nest(project: &Project, parts: &[Part]) -> Nesting {
             let kb = b.1.max(b.2) * 1e6 + b.1 * b.2;
             kb.total_cmp(&ka)
         });
-        let mut bins: Vec<Bin> = vec![];
+        // Stock offcuts first, smallest first, so they are used up before sheets.
+        let mut stock: Vec<[f64; 2]> =
+            m.offcuts.iter().filter(|o| o[0] > 2.0 * s.sheet_trim && o[1] > 2.0 * s.sheet_trim).copied().collect();
+        stock.sort_by(|a, b| (a[0] * a[1]).total_cmp(&(b[0] * b[1])));
+        let mut bins: Vec<Bin> = stock
+            .into_iter()
+            .map(|o| {
+                let mut b = Bin::new(o[0] - 2.0 * s.sheet_trim + k, o[1] - 2.0 * s.sheet_trim + k);
+                b.offcut = Some(o);
+                b
+            })
+            .collect();
         for (i, w, h) in items {
             // With grain, the part's grain must run along sheet length (x).
             let (can_unrot, can_rot) = if m.grain { (!parts[i].grain_y, parts[i].grain_y) } else { (true, true) };
@@ -167,7 +234,9 @@ pub fn nest(project: &Project, parts: &[Part]) -> Nesting {
             for b in bins.iter_mut() {
                 if let Some((_, r, rot)) = b.find(w2, h2, can_unrot, can_rot) {
                     b.place(r);
-                    b.placed.push(Placement { part: i, x: r.x, y: r.y, w: r.w - k, h: r.h - k, rotated: rot });
+                    let pl = Placement { part: i, x: r.x, y: r.y, w: r.w - k, h: r.h - k, rotated: rot };
+                    b.free.extend(notches(&parts[i], &pl));
+                    b.placed.push(pl);
                     done = true;
                     break;
                 }
@@ -179,15 +248,18 @@ pub fn nest(project: &Project, parts: &[Part]) -> Nesting {
             match b.find(w2, h2, can_unrot, can_rot) {
                 Some((_, r, rot)) => {
                     b.place(r);
-                    b.placed.push(Placement { part: i, x: r.x, y: r.y, w: r.w - k, h: r.h - k, rotated: rot });
+                    let pl = Placement { part: i, x: r.x, y: r.y, w: r.w - k, h: r.h - k, rotated: rot };
+                    b.free.extend(notches(&parts[i], &pl));
+                    b.placed.push(pl);
                     bins.push(b);
                 }
                 None => out.oversize.push(i),
             }
         }
-        let usable = (uw - k) * (uh - k);
-        for b in bins {
-            let area: f64 = b.placed.iter().map(|p| p.w * p.h).sum();
+        for b in bins.into_iter().filter(|b| !b.placed.is_empty()) {
+            let (len, wid) = b.offcut.map_or((m.sheet_length, m.sheet_width), |o| (o[0], o[1]));
+            let usable = (len - 2.0 * s.sheet_trim) * (wid - 2.0 * s.sheet_trim);
+            let area: f64 = b.placed.iter().map(|p| part_area(&parts[p.part])).sum();
             let placements = b
                 .placed
                 .into_iter()
@@ -199,11 +271,12 @@ pub fn nest(project: &Project, parts: &[Part]) -> Nesting {
                 .collect();
             out.sheets.push(Sheet {
                 material: mid.clone(),
-                length: m.sheet_length,
-                width: m.sheet_width,
+                length: len,
+                width: wid,
                 trim: s.sheet_trim,
                 placements,
-                yield_pct: (area / usable * 1000.0).round() / 10.0,
+                yield_pct: (area / usable.max(1.0) * 1000.0).round() / 10.0,
+                offcut: b.offcut.is_some(),
             });
         }
     }

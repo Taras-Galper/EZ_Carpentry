@@ -68,7 +68,7 @@ pub fn quote(project: &Project, report: &Report) -> Quote {
 
     // Materials: whole sheets, cost shared by part area within each material.
     let mut mats: Vec<String> = vec![];
-    for s in &report.nesting.sheets {
+    for s in report.nesting.sheets.iter().filter(|s| !s.offcut) {
         if !mats.contains(&s.material) {
             mats.push(s.material.clone());
         }
@@ -77,7 +77,7 @@ pub fn quote(project: &Project, report: &Report) -> Quote {
     let mut materials = 0.0;
     for mid in &mats {
         let m = project.material(mid);
-        let n = report.nesting.sheets.iter().filter(|s| &s.material == mid).count() as f64;
+        let n = report.nesting.sheets.iter().filter(|s| &s.material == mid && !s.offcut).count() as f64;
         let t = n * m.price;
         materials += t;
         lines.push(Line {
