@@ -576,6 +576,11 @@ mod tests {
         assert_eq!(labels.matches("<div class=page>").count(), r.build.parts.len().div_ceil(24));
         assert_eq!(packet.matches("<section class=land>").count(), r.nesting.sheets.len());
         assert!(packet.contains("2026-11-22"));
+        // every edge-bored part is in the edge boring list
+        let edge = &packet[packet.find("<h2>Edge boring</h2>").expect("edge boring section")..];
+        for q in r.build.parts.iter().filter(|q| q.holes.iter().any(|h| h.edge.is_some())) {
+            assert!(edge.contains(&format!("<b>{}</b>", q.id)), "{} missing from edge boring", q.id);
+        }
     }
 
     #[test]

@@ -114,7 +114,12 @@ footer#status{display:flex;gap:16px;padding:6px 12px;border-top:1px solid var(--
   header .logo{margin-right:auto;font-size:14px}
   header .sp{display:none}
   header .menu{display:none}
-  header.open .menu{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;flex-basis:100%}
+  header.open .menu{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;flex-basis:100%;order:2}
+  header .logo{order:0}#undo,#redo,#more{order:1}
+  header.open{flex-wrap:wrap;row-gap:6px}
+  .dlg tr{display:grid;grid-template-columns:1fr auto;align-items:center;border-bottom:1px solid var(--line);padding:4px 0}
+  .dlg td{border:none;padding:3px 6px}.dlg td:nth-child(3){grid-column:1/-1;font-size:12px}
+  .dlg td.n{grid-column:1/-1;text-align:left;display:flex;gap:6px}.dlg td.n button{flex:1;padding:8px}
   header.open .menu button{padding:9px 4px}
   .m-only{display:inline-flex;align-items:center;justify-content:center}
   #more{font-size:18px;line-height:1;padding:4px 12px}

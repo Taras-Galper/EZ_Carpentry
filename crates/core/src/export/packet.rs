@@ -182,6 +182,32 @@ pub fn packet_html(project: &Project, report: &Report, date: Option<&str>) -> St
         let _ = write!(o, "</table></section>");
     }
 
+    // ---------- edge boring (not in the sheet G-code) ----------
+    let bored: Vec<&Part> = b.parts.iter().filter(|p| p.holes.iter().any(|h| h.edge.is_some())).collect();
+    if !bored.is_empty() {
+        let _ = write!(
+            o,
+            "<section><h2>Edge boring</h2><p>Horizontal bores into the panel ends, mid-thickness. Positions are measured along the edge from the part's front (the banded edge, or the edge at drawing y = 0).</p><table><tr><th class=c>✓</th><th>Part</th><th>Name</th><th>Edge</th><th>Bore</th><th>Positions</th></tr>"
+        );
+        for p in bored {
+            for (e, label) in [(3u8, "left"), (1u8, "right"), (0u8, "bottom"), (2u8, "top")] {
+                let hs: Vec<_> = p.holes.iter().filter(|h| h.edge == Some(e)).collect();
+                if hs.is_empty() {
+                    continue;
+                }
+                let mut pos: Vec<f64> = hs.iter().map(|h| if e == 1 || e == 3 { h.y } else { h.x }).collect();
+                pos.sort_by(|a, b| a.total_cmp(b));
+                let _ = write!(
+                    o,
+                    "<tr><td class=c><span class=box></span></td><td><b>{}</b></td><td>{}</td><td>{}</td><td>Ø{} × {}</td><td>{}</td></tr>",
+                    esc(&p.id), esc(&p.name), label, n(hs[0].dia), n(hs[0].depth),
+                    pos.iter().map(|v| n(*v)).collect::<Vec<_>>().join(" · ")
+                );
+            }
+        }
+        let _ = write!(o, "</table></section>");
+    }
+
     // ---------- sheets ----------
     for (i, sh) in report.nesting.sheets.iter().enumerate() {
         let m = project.material(&sh.material);
