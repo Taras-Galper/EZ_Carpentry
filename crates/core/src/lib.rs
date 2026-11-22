@@ -992,4 +992,40 @@ mod tests {
         assert_eq!(pieces.len(), 3);
         assert!(pieces.iter().all(|q| (q.w - 2000.0).abs() < 0.1));
     }
+
+    #[test]
+    fn lift_up_and_glass_fronts() {
+        let mut p = sample_kitchen();
+        for c in p.cabinets.iter_mut() {
+            if c.id == "w1" {
+                c.lift_up = true;
+                c.doors = 2;
+            }
+            if c.id == "w3" {
+                c.glass = true;
+                c.door_style = DoorStyle::Slab;
+            }
+        }
+        let r = compute(&p);
+        assert!(r.build.warnings.is_empty(), "{:?}", r.build.warnings);
+        let hw = |cab: &str, name: &str| {
+            r.build.hardware.iter().filter(|h| h.cabinet == cab && h.name.starts_with(name)).map(|h| h.qty).sum::<u32>()
+        };
+        // lift-up: one full-width front (as Shaker pieces), a stay fitting, no hinges
+        let w1_fronts: Vec<_> = r.build.parts.iter().filter(|q| q.cabinet == "w1" && q.role == parts::Role::Front).collect();
+        assert!(w1_fronts.iter().all(|q| q.id.starts_with("w1-door1")));
+        assert_eq!(hw("w1", "Lift-up stay fitting"), 1);
+        assert_eq!(hw("w1", "Clip hinge"), 0);
+        // glass: slab style still becomes a frame; the panel is glass, bought in
+        let w3: Vec<_> =
+            r.build.parts.iter().filter(|q| q.cabinet == "w3" && q.role == parts::Role::Front).map(|q| q.id.as_str()).collect();
+        assert_eq!(w3.len(), 4, "{w3:?}");
+        assert!(!w3.iter().any(|id| id.ends_with("-pnl")));
+        assert_eq!(hw("w3", "Glass 4 mm"), 1);
+        assert_eq!(hw("w3", "Clip hinge"), 2);
+        assert!(r.build.placeholders.iter().any(|ph| ph.cabinet == "w3" && ph.label == "Glass"));
+        // hinge cups moved onto a stile
+        let stile_cups = r.build.parts.iter().filter(|q| q.cabinet == "w3").flat_map(|q| q.holes.iter()).filter(|h| h.dia == 35.0).count();
+        assert_eq!(stile_cups, 2);
+    }
 }

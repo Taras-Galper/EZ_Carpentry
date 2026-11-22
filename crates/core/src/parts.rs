@@ -476,6 +476,34 @@ fn push_part(
 /// when the cabinet asks for them and the front is big enough.
 fn shakerize(project: &Project, cab: &Cabinet, out: &mut Build, start: usize) {
     let s = &project.settings;
+    // Glass doors: always a five-piece frame; the glass is bought, not cut.
+    let is_door = |p: &Part| p.role == Role::Front && (p.name.starts_with("Door") || p.name.starts_with("Upper door"));
+    if cab.glass {
+        let f = s.shaker_frame;
+        let pm = project.material(&cab.panel_material);
+        let mut i = start;
+        while i < out.parts.len() {
+            let p = &out.parts[i];
+            if is_door(p) && p.w.min(p.h) >= 2.0 * f + 60.0 {
+                let p = out.parts.remove(i);
+                let mut pieces = shaker_pieces(p, f, s.shaker_groove, &pm);
+                let glass = pieces.pop().expect("panel piece");
+                let name = format!("Glass 4 mm {:.0}×{:.0}", glass.w, glass.h);
+                match out.hardware.iter_mut().find(|h| h.cabinet == cab.id && h.name == name) {
+                    Some(h) => h.qty += 1,
+                    None => out.hardware.push(Hardware { cabinet: cab.id.clone(), name, qty: 1 }),
+                }
+                out.placeholders.push(Placeholder { cabinet: cab.id.clone(), label: "Glass".into(), box3d: glass.box3d });
+                let n = pieces.len();
+                for (k, q) in pieces.into_iter().enumerate() {
+                    out.parts.insert(i + k, q);
+                }
+                i += n;
+            } else {
+                i += 1;
+            }
+        }
+    }
     if cab.door_style == DoorStyle::ShakerRouted {
         // One-piece front: recess routed into the outside face (face 2);
         // the frame stays at full thickness. Small fronts stay plain.
@@ -1561,7 +1589,11 @@ fn build_carcass(project: &Project, cab: &Cabinet, out: &mut Build) {
         if cab.doors > 0 && zone_hi - zone_lo > 100.0 {
             let fh = zone_hi - zone_lo - g;
             let ow = ox1 - ox0;
-            let leaves: Vec<(f64, f64, HingeSide)> = if blind {
+            // Lift-up (wall cabinets): one full-width front on a stay-lift fitting.
+            let lift = cab.lift_up && cab.kind == CabinetKind::Wall && !blind;
+            let leaves: Vec<(f64, f64, HingeSide)> = if lift {
+                vec![(ox0 + g / 2.0, ow - g, HingeSide::Left)]
+            } else if blind {
                 // One leaf, hinged on the cabinet side away from the blind panel.
                 let side = if cab.blind_side == BlindSide::Left { HingeSide::Right } else { HingeSide::Left };
                 vec![(ox0 + g / 2.0, ow - g, side)]
@@ -1571,7 +1603,7 @@ fn build_carcass(project: &Project, cab: &Cabinet, out: &mut Build) {
             } else {
                 vec![(ox0 + g / 2.0, ow - g, cab.hinge_side)]
             };
-            if cab.doors > 2 {
+            if cab.doors > 2 && !lift {
                 cx.warn("more than 2 doors not supported, using 2");
             }
             if blind {
@@ -1601,6 +1633,20 @@ fn build_carcass(project: &Project, cab: &Cabinet, out: &mut Build) {
                     [true; 4],
                     Box3 { pos: [x0, zone_lo + g / 2.0, d], size: [fw, fh, ft] },
                 );
+                if lift {
+                    // handle across the bottom edge; the fitting mounts to its own template
+                    if cab.handles {
+                        let sp = s.handle_spacing;
+                        let p = &mut cx.out.parts[idx];
+                        for x in [fw / 2.0 - sp / 2.0, fw / 2.0 + sp / 2.0] {
+                            p.holes.push(Hole { x: r1(x), y: 40.0, dia: 5.0, depth: 0.0, edge: None });
+                        }
+                        cx.hw(format!("Handle {}mm", sp), 1);
+                    }
+                    let duty = if fw * fh > 600.0 * 450.0 { "heavy" } else { "standard" };
+                    cx.hw(format!("Lift-up stay fitting, {duty} (pair)"), 1);
+                    continue;
+                }
                 // Door is drawn inside face up, so a left-hinged door has
                 // its hinge edge on the drawing's right.
                 let cup_x = match side {

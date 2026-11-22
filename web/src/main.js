@@ -537,7 +537,9 @@ function renderProps() {
         lc ? field("Return width", c, "width2") : field("Blind corner", c, "blind_side", "select", [["none", "None"], ["left", "Left"], ["right", "Right"]]),
         blind ? [field("Blind width", c, "blind_width"), h("span")] : null,
         lc ? field("Doors", c, "doors", "select", [[0, "None"], [1, "Bi-fold"]]) : field("Doors", c, "doors", "select", [[0, "None"], [1, "1"], [2, "2"]]),
-        lc ? null : field("Hinge", c, "hinge_side", "select", [["left", "Left"], ["right", "Right"]]),
+        lc || c.lift_up ? null : field("Hinge", c, "hinge_side", "select", [["left", "Left"], ["right", "Right"]]),
+        c.kind === "wall" && !lc ? field("Lift-up", c, "lift_up", "check") : null,
+        field("Glass", c, "glass", "check"),
         field("Front style", c, "door_style", "select", [["slab", "Slab"], ["shaker", "Shaker"], ["shaker_routed", "Shaker routed"]]),
         field("Shelves", c, "shelves", "int"),
         field("Handles", c, "handles", "check"),
@@ -1364,7 +1366,7 @@ function updateScene() {
   for (const ph of report.build.placeholders || []) {
     const g = groups.get(ph.cabinet); if (!g) continue;
     const [x, y, z] = ph.box3d.pos, [sx, sy, sz] = ph.box3d.size;
-    const m = new THREE.Mesh(box, ph.cabinet === selected ? applianceSel : applianceMat);
+    const m = new THREE.Mesh(box, ph.label === "Glass" ? glassMat : ph.cabinet === selected ? applianceSel : applianceMat);
     m.scale.set(sx, sy, sz); m.position.set(x + sx / 2, y + sy / 2, z + sz / 2);
     m.userData.cab = ph.cabinet;
     const l = new THREE.LineSegments(edges, edgeMat); l.scale.copy(m.scale); l.position.copy(m.position);

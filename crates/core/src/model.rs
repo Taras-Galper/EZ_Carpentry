@@ -351,6 +351,10 @@ pub struct Cabinet {
     pub doors: u32,
     pub hinge_side: HingeSide,
     pub door_style: DoorStyle,
+    /// Doors are frames with glass (bought in, listed with the hardware).
+    pub glass: bool,
+    /// Wall cabinet: one full-width front on a lift-up stay fitting.
+    pub lift_up: bool,
     /// Blind corner: this side of the front is a fixed panel that the
     /// perpendicular run covers; the door fills the rest.
     pub blind_side: BlindSide,
@@ -413,6 +417,8 @@ impl Default for Cabinet {
             doors: 1,
             hinge_side: HingeSide::Left,
             door_style: DoorStyle::Slab,
+            glass: false,
+            lift_up: false,
             blind_side: BlindSide::None,
             blind_width: 600.0,
             corner: Corner::None,
