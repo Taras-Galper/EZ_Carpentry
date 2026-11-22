@@ -67,7 +67,8 @@ pub fn cutlist_csv(project: &Project, build: &Build) -> String {
 }
 
 pub fn hardware_csv(project: &Project, build: &Build) -> String {
-    let mut o = String::from("Cabinet,Item,Qty\n");
+    let code = |n: &str| project.pricing.codes.get(n).cloned().unwrap_or_default();
+    let mut o = String::from("Cabinet,Item,Code,Qty\n");
     for h in &build.hardware {
         let name = project
             .cabinets
@@ -75,7 +76,7 @@ pub fn hardware_csv(project: &Project, build: &Build) -> String {
             .find(|c| c.id == h.cabinet)
             .map(|c| format!("{} {}", c.id, c.name))
             .unwrap_or_else(|| h.cabinet.clone());
-        let _ = writeln!(o, "{},{},{}", csv_cell(&name), csv_cell(&h.name), h.qty);
+        let _ = writeln!(o, "{},{},{},{}", csv_cell(&name), csv_cell(&h.name), csv_cell(&code(&h.name)), h.qty);
     }
     let mut totals: Vec<(String, u32)> = vec![];
     for h in &build.hardware {
@@ -85,7 +86,7 @@ pub fn hardware_csv(project: &Project, build: &Build) -> String {
         }
     }
     for (n, q) in totals {
-        let _ = writeln!(o, "TOTAL,{},{}", csv_cell(&n), q);
+        let _ = writeln!(o, "TOTAL,{},{},{}", csv_cell(&n), csv_cell(&code(&n)), q);
     }
     o
 }

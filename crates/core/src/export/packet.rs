@@ -186,9 +186,16 @@ pub fn packet_html(project: &Project, report: &Report, date: Option<&str>) -> St
             None => tot.push((h.name.clone(), h.qty)),
         }
     }
-    let _ = write!(o, "<h3>Hardware</h3><table><tr><th>Item</th><th class=n>Qty</th><th class=c>✓</th></tr>");
+    let code = |n: &str| esc(project.pricing.codes.get(n).map(|s| s.as_str()).unwrap_or(""));
+    let _ = write!(o, "<h3>Hardware</h3><table><tr><th>Item</th><th>Code</th><th class=n>Qty</th><th class=c>✓</th></tr>");
     for (name, q) in &tot {
-        let _ = write!(o, "<tr><td>{}</td><td class=n>{}</td><td class=c><span class=box></span></td></tr>", esc(name), q);
+        let _ = write!(
+            o,
+            "<tr><td>{}</td><td>{}</td><td class=n>{}</td><td class=c><span class=box></span></td></tr>",
+            esc(name),
+            code(name),
+            q
+        );
     }
     let _ = write!(o, "</table></section>");
 
@@ -299,7 +306,13 @@ pub fn packet_html(project: &Project, report: &Report, date: Option<&str>) -> St
         if !hw.is_empty() {
             let _ = write!(o, "<h3>Hardware</h3><table>");
             for h in hw {
-                let _ = write!(o, "<tr><td>{}</td><td class=n>{}</td><td class=c><span class=box></span></td></tr>", esc(&h.name), h.qty);
+                let _ = write!(
+                    o,
+                    "<tr><td>{}</td><td>{}</td><td class=n>{}</td><td class=c><span class=box></span></td></tr>",
+                    esc(&h.name),
+                    code(&h.name),
+                    h.qty
+                );
             }
             let _ = write!(o, "</table>");
         }

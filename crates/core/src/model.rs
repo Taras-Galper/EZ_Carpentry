@@ -76,6 +76,8 @@ pub struct Pricing {
     pub vat_pct: f64,
     /// Unit price by hardware item name; missing items use a default.
     pub hardware: BTreeMap<String, f64>,
+    /// Supplier order code by hardware item name (shown on lists).
+    pub codes: BTreeMap<String, String>,
     pub company: Company,
 }
 
@@ -91,6 +93,7 @@ impl Default for Pricing {
             markup_pct: 30.0,
             vat_pct: 18.0,
             hardware: BTreeMap::new(),
+            codes: BTreeMap::new(),
             company: Company::default(),
         }
     }

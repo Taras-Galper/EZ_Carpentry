@@ -60,6 +60,7 @@ One program per nested sheet, plain ISO / Fanuc-style (`G21 G90`, `T M6`, `S M3`
 
 Quote tab: rates (markup, VAT, labour per hour, CNC minutes per sheet, assembly and install hours per cabinet, edge band per metre), price per sheet for each material, and unit price per hardware item.
 Cost = whole sheets used × sheet price + edge band + hardware + labour. Each cabinet and each worktop is priced at its share of that cost (material by part area, CNC time by area, hardware and assembly by cabinet) plus markup; VAT is added to the subtotal.
+Hardware tab: type your supplier's order code next to each item once; codes are kept with the prices (and the shop defaults) and printed on the hardware CSV and in the shop packet.
 Prices are in `project.json` under `pricing`; sample prices are placeholders.
 
 ## Build

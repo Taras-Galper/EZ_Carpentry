@@ -1019,8 +1019,14 @@ function renderHardware() {
   for (const x of report.build.hardware) tot.set(x.name, (tot.get(x.name) || 0) + x.qty);
   v.append(
     h("table", { class: "hw" },
-      h("thead", {}, h("tr", {}, h("th", {}, "Item"), h("th", {}, "Qty"))),
-      h("tbody", {}, [...tot].map(([n, q]) => h("tr", {}, h("td", {}, n), h("td", { class: "n" }, q))))),
+      h("thead", {}, h("tr", {}, h("th", {}, "Item"), h("th", {}, "Order code"), h("th", {}, "Qty"))),
+      h("tbody", {}, [...tot].map(([n, q]) => {
+        const codes = project.pricing.codes;
+        const input = h("input", { class: "code", value: codes[n] || "", placeholder: "—", onchange: () => {
+          const v = input.value.trim(); if (v) codes[n] = v; else delete codes[n]; recompute();
+        } });
+        return h("tr", {}, h("td", {}, n), h("td", {}, input), h("td", { class: "n" }, q));
+      }))),
     h("table", { class: "hw" },
       h("thead", {}, h("tr", {}, h("th", {}, "Cab"), h("th", {}, "Item"), h("th", {}, "Qty"))),
       h("tbody", {}, report.build.hardware.map((x) =>
