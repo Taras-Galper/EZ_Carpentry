@@ -1317,4 +1317,24 @@ mod tests {
         let w = compute(&p).build.warnings;
         assert!(w.iter().any(|m| m.contains("runs into the column on wall 1")), "{w:?}");
     }
+
+    #[test]
+    fn upstands_along_walls() {
+        let mut p = sample_kitchen();
+        p.settings.upstand = 100.0;
+        let r = compute(&p);
+        assert!(r.build.warnings.is_empty(), "{:?}", r.build.warnings);
+        let get = |id: &str| r.build.parts.iter().find(|q| q.id == id);
+        let back = get("d1-upstand").unwrap();
+        assert_eq!(back.w, get("d1-worktop").unwrap().w);
+        assert_eq!((back.h, back.thickness), (100.0, 20.0));
+        // the back run ends at the right wall; its left end meets the tall pantry
+        assert!(get("d1-upstand-r").is_some() && get("d1-upstand-l").is_none());
+        // the return leg: along the wall, nothing at its free end or at the corner
+        assert!(get("b4-upstand").is_some());
+        assert!(get("b4-upstand-l").is_none() && get("b4-upstand-r").is_none());
+        let q = export::quote::quote(&p, &r);
+        assert!(q.items.iter().any(|i| i.name == "Upstand"));
+        assert!(compute(&sample_kitchen()).build.parts.iter().all(|q| !q.id.contains("upstand")));
+    }
 }

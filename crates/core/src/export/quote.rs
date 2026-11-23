@@ -209,7 +209,7 @@ pub fn quote(project: &Project, report: &Report) -> Quote {
         }
         items.push(Item {
             id: p.id.clone(),
-            name: "Worktop".into(),
+            name: p.name.clone(),
             description: d,
             cost: money(part_cost[i]),
             price: money(part_cost[i] * k),

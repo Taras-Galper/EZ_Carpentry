@@ -1160,6 +1160,7 @@ fn build_worktops(project: &Project, out: &mut Build) {
         }
         // Placed in the frame of the first real cabinet of the run; a run
         // that is only an L's return arm goes in that L's own frame.
+        let real_anchor = t.members.iter().find(|(c, _)| !c.id.ends_with("~b")).map(|(c, _)| *c);
         let (anchor, box3d, suffix) = match t.members.iter().find(|(c, _)| !c.id.ends_with("~b")) {
             Some((c, off)) => (c.id.clone(), Box3 { pos: [t.start - off, c.height, t.z0], size: [t.len, th, t.depth] }, ""),
             None => {
@@ -1169,6 +1170,62 @@ fn build_worktops(project: &Project, out: &mut Build) {
                 (id, b, "2")
             }
         };
+        // Upstands: along the back edge where it meets a wall, and up each
+        // end that stops at a wall (not for an L's lone return arm).
+        let upstands: Vec<(&str, &str, Box3)> = match (real_anchor, s.upstand > 0.0) {
+            (Some(c), true) => {
+                let [bx, by, bz] = box3d.pos;
+                let [len, bt, dep] = box3d.size;
+                let (uh, ut) = (s.upstand, s.upstand_thickness);
+                let at_wall = |lx: f64, lz: f64| {
+                    let (wx, wz) = to_world(c.x, c.z, c.rotation, lx, lz);
+                    walls.iter().any(|w| {
+                        let (tt, s2) = w.local(wx, wz);
+                        s2 > -200.0 && s2 < 15.0 && tt > -1.0 && tt < w.len + 1.0
+                    })
+                };
+                let y = by + bt;
+                let back = at_wall(bx + len / 2.0, bz);
+                let z1 = bz + if back { ut } else { 0.0 };
+                let mut v = vec![];
+                if back {
+                    v.push(("upstand", "Upstand", Box3 { pos: [bx, y, bz], size: [len, uh, ut] }));
+                }
+                if at_wall(bx - 30.0, bz + dep / 2.0) {
+                    v.push(("upstand-l", "Upstand L", Box3 { pos: [bx, y, z1], size: [ut, uh, bz + dep - z1] }));
+                }
+                if at_wall(bx + len + 30.0, bz + dep / 2.0) {
+                    v.push(("upstand-r", "Upstand R", Box3 { pos: [bx + len - ut, y, z1], size: [ut, uh, bz + dep - z1] }));
+                }
+                v
+            }
+            _ => vec![],
+        };
+        for (key, name, b) in upstands {
+            let l = b.size[0].max(b.size[2]);
+            out.parts.push(Part {
+                id: format!("{}-{}{}", anchor, key, suffix),
+                cabinet: anchor.clone(),
+                name: name.into(),
+                role: Role::Worktop,
+                material: tm.id.clone(),
+                thickness: s.upstand_thickness,
+                w: r1(l),
+                h: r1(s.upstand),
+                grain_y: false,
+                edges: [false, false, true, false],
+                outline: rect(r1(l), r1(s.upstand)),
+                holes: vec![],
+                cutouts: vec![],
+                pockets: vec![],
+                box3d: b,
+                more3d: vec![],
+                band_segs: vec![],
+                shared: vec![],
+                rot: 0.0,
+                shape: vec![],
+            });
+        }
         out.parts.push(Part {
             id: format!("{}-worktop{}", anchor, suffix),
             cabinet: anchor,

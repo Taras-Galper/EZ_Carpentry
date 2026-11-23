@@ -183,6 +183,9 @@ pub struct Settings {
     pub plinth_runs: bool,
     /// Cornice board height on top of upper-cabinet runs (0 = none).
     pub cornice: f64,
+    /// Worktop upstand height along walls (0 = none), and its thickness.
+    pub upstand: f64,
+    pub upstand_thickness: f64,
     /// Light rail height under wall-cabinet runs (0 = none).
     pub light_rail: f64,
     pub led: crate::lighting::Led,
@@ -214,6 +217,8 @@ impl Default for Settings {
             worktop_end_overhang: 0.0,
             plinth_runs: true,
             cornice: 0.0,
+            upstand: 0.0,
+            upstand_thickness: 20.0,
             light_rail: 0.0,
             led: Default::default(),
             shaker_frame: 60.0,
