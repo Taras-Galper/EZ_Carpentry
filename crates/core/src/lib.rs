@@ -1337,4 +1337,27 @@ mod tests {
         assert!(q.items.iter().any(|i| i.name == "Upstand"));
         assert!(compute(&sample_kitchen()).build.parts.iter().all(|q| !q.id.contains("upstand")));
     }
+
+    #[test]
+    fn led_in_l_corner() {
+        let mut p = l_kitchen();
+        let wl = p.cabinets.iter_mut().find(|c| c.id == "wl").unwrap();
+        wl.led_under = true;
+        wl.led_shelves = true;
+        let r = compute(&p);
+        assert!(r.build.warnings.is_empty(), "{:?}", r.build.warnings);
+        let bot = r.build.parts.iter().find(|q| q.id == "wl-bottom").unwrap();
+        let grooves: Vec<_> = bot.pockets.iter().filter(|k| k.face == 2).collect();
+        assert_eq!(grooves.len(), 2);
+        // both grooves lie in the L, not in its notch
+        for k in &grooves {
+            for (x, y) in [(k.x, k.y), (k.x + k.w, k.y), (k.x, k.y + k.h), (k.x + k.w, k.y + k.h)] {
+                let (x, y) = (x.clamp(0.1, bot.w - 0.1), y.clamp(0.1, bot.h - 0.1));
+                assert!(inside_outline(&bot.outline, x, y), "{k:?}");
+            }
+        }
+        let strips = r.build.lights.iter().filter(|l| l.cabinet == "wl").count();
+        assert_eq!(strips, 2 * (1 + 1), "two strips per panel: bottom + 1 shelf");
+        assert_eq!(r.build.circuits.len(), 1);
+    }
 }

@@ -84,20 +84,64 @@ fn rout(s: &Led, p: &mut crate::parts::Part) -> Option<f64> {
     Some(len)
 }
 
+/// L-shaped panel (outline from `plan_outline`: notch at the drawing's
+/// lower left, x_d = x - x0, y_d = z1 - z): grooves along both front edges,
+/// meeting at the inner corner, and the cable hole near the back-left.
+/// Returns the two strips as cabinet-local boxes.
+fn rout_l(s: &Led, p: &mut crate::parts::Part) -> Option<Vec<Box3>> {
+    let o = &p.outline;
+    if o.len() != 6 {
+        return None;
+    }
+    // inner corner = the vertex strictly inside the bounding box
+    let v = o.iter().find(|v| v[0] > 0.01 && v[0] < p.w - 0.01 && v[1] > 0.01 && v[1] < p.h - 0.01)?;
+    let (xf, yf) = (v[0], v[1]);
+    let (sb, pw) = (s.setback, s.profile_width);
+    let (gx, gy) = (xf + sb, yf + sb); // groove inner lines
+    if gx + pw > p.w - 40.0 || gy + pw > p.h - 40.0 || gx < 120.0 || gy < 120.0 {
+        return None;
+    }
+    let depth = s.groove_depth.clamp(1.0, p.thickness - 6.0);
+    let r = |v: f64| (v * 10.0).round() / 10.0;
+    // arm A front (along x) and arm B front (along y), overlapping in the corner square
+    p.pockets.push(Pocket { x: 20.0, y: r(gy), w: r(gx + pw - 20.0), h: pw, depth, r: 0.0, face: 2 });
+    p.pockets.push(Pocket { x: r(gx), y: 20.0, w: pw, h: r(gy - 20.0), depth, r: 0.0, face: 2 });
+    p.holes.push(Hole { x: 40.0, y: r(p.h - 40.0), dia: s.cable_hole, depth: 0.0, edge: None });
+    let [x0, y, z0] = p.box3d.pos;
+    let z1 = z0 + p.h;
+    // drawing (x_d, y_d) -> local (x0 + x_d, z1 - y_d)
+    Some(vec![
+        Box3 { pos: [x0 + 20.0, y - 1.0, z1 - gy - pw], size: [gx + pw - 20.0, 2.0, pw] },
+        Box3 { pos: [x0 + gx, y - 1.0, z1 - gy], size: [pw, 2.0, gy - 20.0] },
+    ])
+}
+
 /// Machine the panels of one cabinet for its LEDs and record the strips.
 pub fn cabinet(project: &Project, cab: &Cabinet, out: &mut Build) {
     let s = &project.settings.led;
     if !(cab.led_under || cab.led_shelves) {
         return;
     }
-    if cab.is_l() {
-        out.warnings.push(format!("{} ({}): LEDs are not routed in corner cabinets", cab.name, cab.id));
+    if cab.is_diagonal() {
+        out.warnings.push(format!("{} ({}): LEDs are not routed in diagonal corner cabinets", cab.name, cab.id));
         return;
     }
+    let corner = cab.is_l();
     let mut lights = vec![];
     let mut add = |out: &mut Build, key: &str, place: &str| {
         let id = format!("{}-{}", cab.id, key);
         let Some(p) = out.parts.iter_mut().find(|p| p.id == id) else { return };
+        if corner {
+            if let Some(strips) = rout_l(s, p) {
+                for b in strips {
+                    let length = b.size[0].max(b.size[2]);
+                    lights.push(Light { cabinet: cab.id.clone(), place: place.into(), length, box3d: b, circuit: String::new() });
+                }
+            } else {
+                out.warnings.push(format!("{} ({}): {} too small for an LED profile", cab.name, cab.id, place.to_lowercase()));
+            }
+            return;
+        }
         match rout(s, p) {
             Some(len) => {
                 let [x, y, z] = p.box3d.pos;
