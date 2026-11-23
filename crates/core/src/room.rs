@@ -37,6 +37,51 @@ impl Default for Opening {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ObstacleKind {
+    #[default]
+    Column,
+    /// Boxed-in pipes or ducts.
+    Boxing,
+    Radiator,
+}
+
+/// Something standing against a wall that cabinets must clear.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Obstacle {
+    pub wall: usize,
+    pub kind: ObstacleKind,
+    /// Along the wall from its start corner.
+    pub offset: f64,
+    pub width: f64,
+    /// How far it stands out from the wall into the room.
+    pub depth: f64,
+    pub height: f64,
+    /// Bottom above the floor.
+    pub elevation: f64,
+}
+
+impl Default for Obstacle {
+    fn default() -> Self {
+        Self { wall: 0, kind: ObstacleKind::Column, offset: 0.0, width: 400.0, depth: 400.0, height: 2600.0, elevation: 0.0 }
+    }
+}
+
+impl Obstacle {
+    /// Plan corners (start-near, end-near, end-far, start-far).
+    pub fn corners(&self, room: &Room) -> Option<[(f64, f64); 4]> {
+        let w = room.wall(self.wall)?;
+        Some([
+            w.point(self.offset, 0.0),
+            w.point(self.offset + self.width, 0.0),
+            w.point(self.offset + self.width, self.depth),
+            w.point(self.offset, self.depth),
+        ])
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Room {
@@ -45,11 +90,12 @@ pub struct Room {
     pub thickness: f64,
     pub height: f64,
     pub openings: Vec<Opening>,
+    pub obstacles: Vec<Obstacle>,
 }
 
 impl Default for Room {
     fn default() -> Self {
-        Self { walls: vec![], thickness: 100.0, height: 2600.0, openings: vec![] }
+        Self { walls: vec![], thickness: 100.0, height: 2600.0, openings: vec![], obstacles: vec![] }
     }
 }
 
@@ -91,6 +137,11 @@ impl Room {
         self.walls.reverse();
         // old wall i (corner i -> i+1) becomes new wall n-2-i (mod n), running backwards
         for o in self.openings.iter_mut() {
+            let old = o.wall % n;
+            o.wall = (2 * n - 2 - old) % n;
+            o.offset = lens[old] - o.offset - o.width;
+        }
+        for o in self.obstacles.iter_mut() {
             let old = o.wall % n;
             o.wall = (2 * n - 2 - old) % n;
             o.offset = lens[old] - o.offset - o.width;
@@ -167,6 +218,18 @@ fn blocked(project: &Project, wi: usize, w: &Wall, lo: f64, hi: f64, depth: f64)
         let (b, t) = (o.sill, o.sill + o.height);
         if b < hi && t > lo {
             out.push((o.offset, o.offset + o.width));
+        }
+    }
+    for o in &project.room.obstacles {
+        if o.elevation >= hi || o.elevation + o.height <= lo {
+            continue;
+        }
+        let Some(pts) = o.corners(&project.room) else { continue };
+        let pts: Vec<(f64, f64)> = pts.iter().map(|&(x, z)| w.local(x, z)).collect();
+        let (t0, t1) = pts.iter().fold((f64::MAX, f64::MIN), |a, p| (a.0.min(p.0), a.1.max(p.0)));
+        let (s0, s1) = pts.iter().fold((f64::MAX, f64::MIN), |a, p| (a.0.min(p.1), a.1.max(p.1)));
+        if s1 > 1.0 && s0 < depth - 1.0 && t1 > 0.0 && t0 < w.len {
+            out.push((t0, t1));
         }
     }
     for c in &project.cabinets {

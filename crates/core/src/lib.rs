@@ -1286,4 +1286,35 @@ mod tests {
         assert!(r.build.warnings[0].contains("larder pull-out is for tall cabinets"));
         assert!(accessories::fitting(&p.cabinets.iter().find(|c| c.id == "t1").unwrap().clone()).contains(&"larder"));
     }
+
+    #[test]
+    fn obstacles_block_fill_and_warn() {
+        let mut p = sample_kitchen();
+        p.cabinets.clear();
+        p.room.obstacles.push(room::Obstacle { wall: 0, offset: 1200.0, width: 400.0, depth: 300.0, ..Default::default() });
+        // a radiator under the window height on wall 1 does not stop wall cabinets
+        p.room.obstacles.push(room::Obstacle {
+            wall: 1,
+            kind: room::ObstacleKind::Radiator,
+            offset: 800.0,
+            width: 800.0,
+            depth: 100.0,
+            height: 600.0,
+            elevation: 150.0,
+        });
+        let base = room::fill_wall(&p, 0, room::Tier::Base).unwrap();
+        assert!(!base.is_empty());
+        for c in &base {
+            assert!(c.x + c.width <= 1200.0 + 0.5 || c.x >= 1600.0 - 0.5, "{} at {}..{}", c.id, c.x, c.x + c.width);
+        }
+        let up = room::fill_wall(&p, 1, room::Tier::Wall).unwrap();
+        let down = room::fill_wall(&p, 1, room::Tier::Base).unwrap();
+        let span = |v: &Vec<Cabinet>| v.iter().map(|c| c.width).sum::<f64>();
+        assert!(span(&up) > span(&down) + 700.0, "radiator blocks base units only");
+        p.cabinets = base;
+        assert!(compute(&p).build.warnings.is_empty());
+        p.cabinets.push(Cabinet { id: "x1".into(), x: 1300.0, ..Cabinet::default() });
+        let w = compute(&p).build.warnings;
+        assert!(w.iter().any(|m| m.contains("runs into the column on wall 1")), "{w:?}");
+    }
 }

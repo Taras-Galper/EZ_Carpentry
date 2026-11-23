@@ -82,6 +82,24 @@ pub fn check(project: &Project, warnings: &mut Vec<String>) {
     if room.walls.len() < 3 {
         return;
     }
+    // 1b. Cabinets running into columns, boxing or radiators.
+    for o in &room.obstacles {
+        let Some(q) = o.corners(room) else { continue };
+        for c in cabs {
+            if c.elevation >= o.elevation + o.height - 2.0 || c.elevation + c.height <= o.elevation + 2.0 {
+                continue;
+            }
+            let hit = corners(c).iter().map(|qa| overlap(qa, &q)).fold(f64::MIN, f64::max);
+            if hit > 2.0 {
+                let what = match o.kind {
+                    crate::room::ObstacleKind::Column => "column",
+                    crate::room::ObstacleKind::Boxing => "boxing",
+                    crate::room::ObstacleKind::Radiator => "radiator",
+                };
+                warnings.push(format!("{} runs into the {what} on wall {} by {:.0} mm", name(c), o.wall + 1, hit));
+            }
+        }
+    }
     // 2. Cabinets through walls: a footprint corner outside the room.
     for c in cabs {
         let out = corners(c)

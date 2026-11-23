@@ -90,8 +90,8 @@ export function resizeWall(room, i, L, anchor = "start") {
   const [ds, de] = anchor === "end" ? [d, 0] : anchor === "centre" ? [d / 2, d / 2] : [0, d];
   if (de) slide(at(i + 1), [w.dir[0] * de, w.dir[1] * de], +1);
   if (ds) slide(i, [-w.dir[0] * ds, -w.dir[1] * ds], -1);
-  const openings = (room.openings || []).map((o) => (o.wall === i && ds ? { ...o, offset: Math.round((o.offset + ds) * 10) / 10 } : o));
-  return { walls: P.map((p) => [Math.round(p[0] * 10) / 10, Math.round(p[1] * 10) / 10]), openings };
+  const shift = (list) => (list || []).map((o) => (o.wall === i && ds ? { ...o, offset: Math.round((o.offset + ds) * 10) / 10 } : o));
+  return { walls: P.map((p) => [Math.round(p[0] * 10) / 10, Math.round(p[1] * 10) / 10]), openings: shift(room.openings), obstacles: shift(room.obstacles) };
 }
 
 // After the room's corners change, carry cabinets along with their walls.

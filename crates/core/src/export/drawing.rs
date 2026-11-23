@@ -352,7 +352,7 @@ pub fn wall_svg(project: &Project, build: &Build, wi: usize) -> Option<String> {
 <style>
 rect,polygon{{stroke:#222;stroke-width:{lw:.2}}}
 .wall{{fill:#fafaf8}}.carcass{{fill:#f2f0ea}}.front{{fill:#d9c09c}}.top{{fill:#b8936b}}.back,.shelf,.drawer{{fill:none}}
-.ghost{{fill:none;stroke:#999;stroke-dasharray:{dash:.1}}}.opening{{fill:#e8f0f7;stroke:#6b8fb3;stroke-dasharray:{dash:.1}}}
+.ghost{{fill:none;stroke:#999;stroke-dasharray:{dash:.1}}}.obst{{fill:#d9d4ca;stroke:#777}}.opening{{fill:#e8f0f7;stroke:#6b8fb3;stroke-dasharray:{dash:.1}}}
 .dim{{stroke:#1d5fbf;stroke-width:{lw:.2}}}.ext{{stroke:#1d5fbf;stroke-width:{thin:.2};opacity:.6}}
 text{{fill:#1f1d1a}}
 </style>"##,
@@ -370,6 +370,16 @@ text{{fill:#1f1d1a}}
         let label = format!("{:?} {}×{}{}", o.kind, fmt(o.width), fmt(o.height), sill);
         s.text(tx(o.offset + o.width / 2.0), vy(o.sill + o.height / 2.0), &label, "middle", fs * 0.8, 0.0);
     }
+    for o in &room.obstacles {
+        let Some(q) = o.corners(room) else { continue };
+        let pts: Vec<(f64, f64)> = q.iter().map(|&(x, z)| w.local(x, z)).collect();
+        let (t0, t1) = pts.iter().fold((f64::MAX, f64::MIN), |a, p| (a.0.min(p.0), a.1.max(p.0)));
+        let (s0, s1) = pts.iter().fold((f64::MAX, f64::MIN), |a, p| (a.0.min(p.1), a.1.max(p.1)));
+        if near(t0, t1, s0, s1) {
+            items.push((s1 - 40.0, "obst", t0, t1, o.elevation, o.elevation + o.height));
+        }
+    }
+    items.sort_by(|a, b| a.0.total_cmp(&b.0));
     for &(_, cls, t0, t1, y0, y1) in &items {
         let (a, b) = (t0.max(0.0), t1.min(len));
         if b - a > 0.5 {
@@ -467,7 +477,7 @@ pub fn plan_svg(project: &Project) -> Option<String> {
 <style>
 rect,polygon{{stroke:#222;stroke-width:{lw:.2}}}
 .wallband{{fill:#cfcac0;stroke:none}}.floor{{fill:#fafaf8}}.base{{fill:#e9dcc6}}.upper{{fill:none;stroke:#555;stroke-dasharray:{dash:.1}}}.tall{{fill:#d9c09c}}
-.door{{fill:#fafaf8;stroke:none}}.swing{{fill:none;stroke:#6b8fb3;stroke-width:{lw:.2}}}.window{{fill:#e8f0f7;stroke:#6b8fb3}}
+.door{{fill:#fafaf8;stroke:none}}.rad{{fill:#e9e4da;stroke:#888}}.swing{{fill:none;stroke:#6b8fb3;stroke-width:{lw:.2}}}.window{{fill:#e8f0f7;stroke:#6b8fb3}}
 .dim{{stroke:#1d5fbf;stroke-width:{lw:.2}}}.ext{{stroke:#1d5fbf;stroke-width:{thin:.2};opacity:.6}}
 text{{fill:#1f1d1a}}
 </style>"##,
@@ -504,6 +514,12 @@ text{{fill:#1f1d1a}}
             s.line(hx, hy, lx, ly, "swing");
             let sweep = if (lx - hx) * (ey - hy) - (ly - hy) * (ex - hx) > 0.0 { 1 } else { 0 };
             let _ = write!(s.o, r#"<path d="M{lx:.1} {ly:.1} A{r:.1} {r:.1} 0 0 {sweep} {ex:.1} {ey:.1}" class="swing"/>"#, r = o.width);
+        }
+    }
+    for o in &room.obstacles {
+        if let Some(q) = o.corners(room) {
+            let pts: Vec<(f64, f64)> = q.iter().map(|&(x, z)| (px(x), pz(z))).collect();
+            s.poly(&pts, if o.kind == crate::room::ObstacleKind::Radiator { "rad" } else { "wallband" });
         }
     }
     // cabinets: floor-standing first, wall units dashed on top

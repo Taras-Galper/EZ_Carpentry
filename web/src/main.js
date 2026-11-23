@@ -713,10 +713,19 @@ function renderWallPanel(put) {
     const L = parseFloat(lenInput.value); if (!(L > 50)) return;
     const r = resizeWall(project.room, i, L, lenAnchor);
     moveWithWalls(project.room.walls, r.walls, project.cabinets);
-    project.room.walls = r.walls; project.room.openings = r.openings;
+    project.room.walls = r.walls; project.room.openings = r.openings; project.room.obstacles = r.obstacles;
     commitRoom();
   } });
   const ops = project.room.openings.map((o, k) => [o, k]).filter(([o]) => o.wall === i);
+  project.room.obstacles ||= [];
+  const obs = project.room.obstacles.map((o, k) => [o, k]).filter(([o]) => o.wall === i);
+  const addObstacle = (kind) => {
+    const H = project.room.height || 2600;
+    const o = { column: { width: 400, depth: 400, height: H, elevation: 0 }, boxing: { width: 200, depth: 200, height: H, elevation: 0 },
+      radiator: { width: 800, depth: 100, height: 600, elevation: 150 } }[kind];
+    project.room.obstacles.push({ wall: i, kind, offset: Math.max(0, Math.round((w.len - o.width) / 2)), ...o });
+    recompute();
+  };
   const addOpening = (kind) => {
     const width = kind === "door" ? 850 : 1000;
     project.room.openings.push(kind === "door"
@@ -747,6 +756,19 @@ function renderWallPanel(put) {
     h("div", { class: "row" },
       h("button", { onclick: () => addOpening("door") }, "+ Door"),
       h("button", { onclick: () => addOpening("window") }, "+ Window")),
+    h("h3", {}, "Columns & obstacles"),
+    ...obs.map(([o, k]) => h("div", { class: "mat" },
+      h("div", { class: "row" },
+        h("b", { class: "grow" }, { column: "Column", boxing: "Boxing", radiator: "Radiator" }[o.kind]),
+        h("button", { class: "danger", onclick: () => { project.room.obstacles.splice(k, 1); recompute(); } }, "Delete")),
+      h("div", { class: "grid2" },
+        field("From corner", o, "offset"), field("Width", o, "width"),
+        field("Depth", o, "depth"), field("Height", o, "height"),
+        o.kind === "radiator" ? field("From floor", o, "elevation") : null))),
+    h("div", { class: "row" },
+      h("button", { onclick: () => addObstacle("column") }, "+ Column"),
+      h("button", { onclick: () => addObstacle("boxing") }, "+ Boxing"),
+      h("button", { onclick: () => addObstacle("radiator") }, "+ Radiator")),
   );
 }
 
@@ -1363,6 +1385,17 @@ function buildRoom() {
       ov.append(dot); overlayItems.push({ el: dot, pos: new THREE.Vector3(mx, 0, mz) });
     }
   }
+  // columns, boxing, radiators: solid blocks against their wall
+  for (const o of room.obstacles || []) {
+    const w = wallOf(room, o.wall); if (!w) continue;
+    const m = new THREE.Mesh(box, o.kind === "radiator" ? radiatorMat : obstacleMat);
+    const [cx, cz] = wallPoint(w, o.offset + o.width / 2, o.depth / 2);
+    m.scale.set(o.width, o.height, o.depth); m.position.set(cx, o.elevation + o.height / 2, cz);
+    m.rotation.y = THREE.MathUtils.degToRad(w.rotation);
+    m.userData.wall = w.i;
+    const l = new THREE.LineSegments(new THREE.EdgesGeometry(box), edgeMat); l.scale.copy(m.scale); l.position.copy(m.position); l.rotation.copy(m.rotation);
+    roomGroup.add(m, l);
+  }
   room.walls.forEach(([x, z], i) => {
     // the selected wall's fixed corner(s) for a typed length are filled
     const n = room.walls.length;
@@ -1554,6 +1587,8 @@ function partMat(p, size, sel) {
   return matCache.get(key);
 }
 const ledMat = new THREE.MeshBasicMaterial({ color: 0xfff1c2 });
+const obstacleMat = new THREE.MeshStandardMaterial({ color: 0xd6d1c7, roughness: 1 });
+const radiatorMat = new THREE.MeshStandardMaterial({ color: 0xf2f2f0, roughness: 0.5 });
 // warm glow that fades away from the strip (alpha by v: bright at the top)
 const beamMat = (() => {
   const cv = document.createElement("canvas"); cv.width = 4; cv.height = 64;
