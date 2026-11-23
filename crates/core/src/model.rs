@@ -15,6 +15,9 @@ pub struct Project {
     pub cnc: crate::export::gcode::Cnc,
     /// Who the job is for (printed on the customer quote).
     pub client: Contact,
+    /// Edits made to single parts, by part id.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub part_edits: BTreeMap<String, crate::edits::PartEdit>,
 }
 
 /// Name and contact lines for the customer quote.
@@ -741,6 +744,7 @@ pub fn sample_kitchen() -> Project {
         room,
         cnc: Default::default(),
         client: Contact::default(),
+        part_edits: BTreeMap::new(),
     }
 }
 

@@ -3,6 +3,7 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { TransformControls } from "three/examples/jsm/controls/TransformControls.js";
 import init, * as cwWasm from "../pkg/casework_wasm.js";
 import wasmBytes from "../pkg/casework_wasm_bg.wasm";
+import { renderPartView, partPanel, partKey } from "./partview.js";
 import { wallOf, walls as roomWalls, local as wallLocal, point as wallPoint, wallPieces, snapCorner, resizeWall, moveWithWalls } from "./room.js";
 
 const $ = (s, r = document) => r.querySelector(s);
@@ -28,6 +29,8 @@ let project, report, selected = null, tab = "3d", showFronts = true;
 // others; it is dropped whenever `selected` changes outside multi-select.
 const selSet = new Set();
 let selAnchor = null;
+// Part view: the id of the part shown on its own (null = off).
+let partId = null, partOwner = null;
 let multiMode = false; // taps add to the selection (phones have no Shift)
 const isSel = (id) => id === selected || selSet.has(id);
 const selection = () => project.cabinets.filter((c) => isSel(c.id));
@@ -193,6 +196,10 @@ function recompute() {
   if (selected !== selAnchor) selSet.clear();
   for (const id of [...selSet]) if (id === selected || !project.cabinets.some((c) => c.id === id)) selSet.delete(id);
   selAnchor = selected;
+  // edits of parts whose cabinet is gone (ids get reused)
+  for (const k of Object.keys(project.part_edits || {}))
+    if (!project.cabinets.some((c) => c.id === k.split(/[-~]/)[0])) delete project.part_edits[k];
+  if (partId && selected !== partOwner) partId = null;
   const json = JSON.stringify(project);
   try {
     report = JSON.parse(cw.compute(json));
@@ -469,6 +476,8 @@ function renderProps() {
   // Conditional fields pass null; leave them out.
   const put = (...kids) => el.append(...kids.flat().filter((k) => k != null && k !== false));
   if (selWall != null && wallOf(project.room, selWall)) return renderWallPanel(put);
+  const pc = partId && partCtx();
+  if (pc) return partPanel(put, pc);
   const c = project.cabinets.find((c) => c.id === selected);
   const mats = project.materials.map((m) => [m.id, m.name]);
   if (c && selSet.size) return renderMultiPanel(put);
@@ -878,7 +887,10 @@ function renderStatus() {
 // ---------- tabs ----------
 function renderTab() {
   $$("#tabs button[data-tab]").forEach((b) => b.classList.toggle("on", b.dataset.tab === tab));
-  $$(".view").forEach((v) => (v.hidden = v.id !== "v-" + tab));
+  const pc = partId && partCtx();
+  $$(".view").forEach((v) => (v.hidden = v.id !== (pc ? "v-part" : "v-" + tab)));
+  $("#tabs").classList.toggle("partmode", !!pc);
+  if (pc) return renderPartView($("#v-part"), pc);
   if (tab === "3d") updateScene();
   if (tab === "parts") renderParts();
   if (tab === "sheets") renderSheets();
@@ -1059,8 +1071,9 @@ function renderParts() {
     $(`tr[data-i="${p.i}"]`, v)?.classList.add("sel");
     preview.replaceChildren(
       h("div", { class: "row" }, h("h3", {}, `${p.cabinet} · ${p.name}`),
-        h("button", { onclick: () => saveFile(`${slug(p.id)}.dxf`, cw.export_one(JSON.stringify(project), "part_dxf", p.i)) }, "DXF")),
-      partSvg(p, 300),
+        h("button", { onclick: () => saveFile(`${slug(p.id)}.dxf`, cw.export_one(JSON.stringify(project), "part_dxf", p.i)) }, "DXF"),
+        h("button", { class: "pri", "data-edit-part": p.id, onclick: () => openPart(p.id) }, "Edit")),
+      h("div", { class: "zoomable", onclick: () => openPart(p.id) }, partSvg(p, 300)),
       h("dl", {},
         h("dt", {}, "Finished"), h("dd", {}, `${p.w} × ${p.h} × ${p.thickness}`),
         h("dt", {}, "Material"), h("dd", {}, matOf(p.material).name),
@@ -1069,8 +1082,8 @@ function renderParts() {
       ...(p.cutouts || []).flatMap((c) => [h("dt", {}, c.kind === "hob" ? "Hob" : "Sink"),
         h("dd", {}, `${c.w} × ${c.h} R${c.r} at ${c.x}, ${c.y}`)])));
   };
-  const tbody = h("tbody", {}, list.map((p) => h("tr", { "data-i": p.i, onclick: () => show(p) },
-    h("td", {}, p.cabinet), h("td", {}, p.name), h("td", {}, matOf(p.material).name),
+  const tbody = h("tbody", {}, list.map((p) => h("tr", { "data-i": p.i, onclick: () => show(p), ondblclick: () => openPart(p.id) },
+    h("td", {}, p.cabinet), h("td", {}, p.name, project.part_edits?.[p.id] ? h("span", { class: "edited", title: "Edited" }, " ✎") : null), h("td", {}, matOf(p.material).name),
     h("td", { class: "n" }, p.w), h("td", { class: "n" }, p.h), h("td", { class: "n" }, p.thickness),
     h("td", {}, ["B", "R", "T", "L"].filter((_, k) => p.edges[k]).join("")),
     h("td", { class: "n" }, p.holes.length || ""))));
@@ -1080,6 +1093,41 @@ function renderParts() {
       tbody)),
     preview);
   if (list[0]) show(list[0]);
+}
+
+// ---------- part view ----------
+// Parts of a cabinet go round in build order; worktops and plinths belong to
+// the cabinet they are listed under.
+function partCtx() {
+  const parts = report.build.parts, i = parts.findIndex((p) => p.id === partId);
+  if (i < 0) { partId = null; toast("Part no longer exists"); return null; }
+  const p = parts[i], sib = parts.filter((q) => q.cabinet === p.cabinet), k = sib.indexOf(p);
+  const commit = (fn) => {
+    project.part_edits ||= {};
+    if (!fn) delete project.part_edits[p.id];
+    else {
+      const e = project.part_edits[p.id] ||= {};
+      fn(e);
+      for (const [key, v] of Object.entries(e)) if (v == null || (Array.isArray(v) && !v.length && key !== "band_segs")) delete e[key];
+      if (!Object.keys(e).length) delete project.part_edits[p.id];
+    }
+    recompute();
+  };
+  return {
+    part: p, edit: project.part_edits?.[p.id] || {}, commit, index: k, count: sib.length,
+    refresh: () => { renderProps(); renderTab(); },
+    close: () => { partId = null; renderProps(); renderTab(); },
+    step: (d) => { partId = sib[(k + d + sib.length) % sib.length].id; renderProps(); renderTab(); },
+    h, matOf, materials: project.materials, summarizeHoles,
+    exportDxf: () => saveFile(`${slug(p.id)}.dxf`, cw.export_one(JSON.stringify(project), "part_dxf", i)),
+  };
+}
+
+function openPart(id) {
+  const p = report.build.parts.find((q) => q.id === id); if (!p) return;
+  partId = id; partOwner = p.cabinet; selected = p.cabinet; selWall = null; selSet.clear();
+  closeSheetOnPhone();
+  recompute();
 }
 
 function summarizeHoles(holes) {
@@ -1209,6 +1257,7 @@ function setup3d() {
     const r = el.getBoundingClientRect();
     ptr.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
     ray.setFromCamera(ptr, camera);
+    scene.updateMatrixWorld(); // meshes rebuilt since the last frame have no world matrix yet
   };
   // In the front view the floor is edge-on, so drag along a vertical plane (x only).
   const floorPoint = () => ray.ray.intersectPlane(view === "front" ? wallPlane : floor, new THREE.Vector3());
@@ -1243,7 +1292,13 @@ function setup3d() {
     const p = c && floorPoint();
     drag = { sx: e.clientX, sy: e.clientY, c, wall: hit?.object.userData.wall, moved: false, off: p ? [c.x - p.x, c.z - p.z] : null };
   });
-  el.addEventListener("dblclick", () => { if (drawing && drawing.pts.length >= 3) finishDrawing(); });
+  el.addEventListener("dblclick", (e) => {
+    if (drawing) { if (drawing.pts.length >= 3) finishDrawing(); return; }
+    // double-click a panel: open it on its own
+    aim(e);
+    const hit = ray.intersectObjects(root.children, true).find((x) => shown(x.object) && x.object.userData.part);
+    if (hit) openPart(hit.object.userData.part);
+  });
   el.addEventListener("pointermove", (e) => {
     if (drawing) { aim(e); drawCursor(); return; }
     if (!drag?.c || !drag.off) return;
@@ -1672,13 +1727,13 @@ function updateScene() {
       geo.rotateX(Math.PI / 2);
       const m = new THREE.Mesh(geo, partMat(p, p.box3d.size, isSel(p.cabinet)));
       m.position.y = p.box3d.pos[1] + p.box3d.size[1];
-      m.userData.cab = p.cabinet;
+      m.userData.cab = p.cabinet; m.userData.part = p.id;
       const l = new THREE.LineSegments(new THREE.EdgesGeometry(geo), edgeMat); l.position.copy(m.position);
       g.add(m, l);
     } else for (const b of [p.box3d, ...(p.more3d || [])]) {
       const m = new THREE.Mesh(box, partMat(p, b.size, isSel(p.cabinet)));
       m.scale.set(...b.size); m.position.set(b.size[0] / 2, b.size[1] / 2, b.size[2] / 2);
-      m.userData.cab = p.cabinet;
+      m.userData.cab = p.cabinet; m.userData.part = p.id;
       const l = new THREE.LineSegments(edges, edgeMat); l.scale.copy(m.scale); l.position.copy(m.position);
       // boxes turn about their corner (angled doors)
       const pivot = new THREE.Group(); pivot.position.set(...b.pos); pivot.rotation.y = THREE.MathUtils.degToRad(p.rot || 0);
@@ -1866,7 +1921,7 @@ async function main() {
   $("#csv").onclick = () => saveFile(slug(project.name) + "_cutlist.csv", cw.export_one(JSON.stringify(project), "cutlist", 0));
   $("#labels").onclick = () => saveFile(slug(project.name) + "_labels.html", cw.export_one(JSON.stringify(project), "labels_html", 0));
   $("#obj").onclick = () => saveFile(slug(project.name) + ".obj", cw.export_one(JSON.stringify(project), "obj", 0));
-  $$("#tabs button[data-tab]").forEach((b) => (b.onclick = () => { tab = b.dataset.tab; renderTab(); }));
+  $$("#tabs button[data-tab]").forEach((b) => (b.onclick = () => { tab = b.dataset.tab; if (partId) { partId = null; renderProps(); } renderTab(); }));
   $("#fronts").onchange = (e) => { showFronts = e.target.checked; updateScene(); };
   $("#fit").onclick = frame;
   $("#shot").onclick = () => saveFile(slug(project.name) + ".png", dataUrlBytes(snapshot(2400, 1500)));
@@ -1898,6 +1953,7 @@ async function main() {
     if (e.target.matches("input,select,textarea")) return;
     if (mod && e.key.toLowerCase() === "z") { e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
     if (mod && e.key.toLowerCase() === "y") { e.preventDefault(); redo(); return; }
+    if (partId && !mod) { const pc = partCtx(); if (pc && partKey(e, pc)) return; }
     if ((e.key === "Delete" || e.key === "Backspace") && selected) {
       project.cabinets = project.cabinets.filter((c) => !isSel(c.id)); selected = null; recompute();
     }
@@ -1933,6 +1989,8 @@ async function main() {
     get selected() { return selected; },
     get view() { return view; },
     selectWall(i) { selWall = i; selected = null; recompute(); },
+    openPart,
+    get partId() { return partId; },
     worldToScreen(x, y, z) {
       const r = renderer.domElement.getBoundingClientRect(), v = new THREE.Vector3(x, y, z).project(camera);
       return { x: r.left + ((v.x + 1) / 2) * r.width, y: r.top + ((1 - v.y) / 2) * r.height };

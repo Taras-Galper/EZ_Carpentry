@@ -122,6 +122,36 @@ for (const engine of ["wasm", "js"]) {
   await page.close();
 }
 
+// Part view: double-click a door in 3D opens it on its own; double-click on the
+// drawing adds a bore that the project keeps; Esc goes back.
+{
+  const page = await browser.newPage({ viewport: { width: 1500, height: 900 } });
+  const errors = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  await page.goto(url);
+  await page.waitForFunction(() => window.ezCarpentry?.project);
+  await page.waitForTimeout(800);
+  const at = await page.evaluate(() => {
+    const e = window.ezCarpentry, c = e.project.cabinets.find((c) => c.kind === "base" && c.corner === "none");
+    const r = c.rotation * Math.PI / 180, lx = c.width / 2, lz = c.depth + 5;
+    return e.worldToScreen(c.x + lx * Math.cos(r) + lz * Math.sin(r), c.elevation + c.height / 2, c.z - lx * Math.sin(r) + lz * Math.cos(r));
+  });
+  await page.mouse.dblclick(at.x, at.y); await page.waitForTimeout(400);
+  const opened = await page.evaluate(() => window.ezCarpentry.partId);
+  check(!!opened && !(await page.locator("#v-part").isHidden()), `part view opens from 3D (${opened})`);
+  if (opened) {
+    const f = await page.locator(".pv-face").boundingBox();
+    await page.mouse.dblclick(f.x + f.width * 0.5, f.y + f.height * 0.5); await page.waitForTimeout(300);
+    const e = await page.evaluate((id) => window.ezCarpentry.project.part_edits?.[id], opened);
+    check(e?.add?.length === 1, `bore added on the part ${JSON.stringify(e)}`);
+    await page.click("#v-part .pv-svg", { position: { x: 5, y: 5 } }); // drop the bore selection
+    await page.keyboard.press("Escape"); await page.waitForTimeout(200);
+    check(await page.evaluate(() => window.ezCarpentry.partId === null), "Esc closes the part view");
+  }
+  check(errors.length === 0, `part view: no page errors ${errors.join(" | ")}`);
+  await page.close();
+}
+
 const phone = await browser.newContext({ ...pw.devices["iPhone 13"] });
 const pp = await phone.newPage();
 await pp.goto(url);

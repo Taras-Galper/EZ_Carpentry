@@ -9,7 +9,7 @@
 //! (z = 0 at the back face, z = depth at the carcass front).
 
 use crate::model::*;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -22,7 +22,7 @@ pub enum Role {
     Worktop,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Hole {
     /// Face bores: centre on the face. Edge bores: point on the edge.
     pub x: f64,
@@ -496,6 +496,7 @@ pub fn build(project: &Project) -> Build {
         build_trim(project, &mut out, Trim::LightRail);
     }
     crate::lighting::plan(project, &mut out);
+    crate::edits::apply(project, &mut out);
     crate::install::plan(project, &mut out, &joints);
     out
 }

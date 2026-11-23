@@ -51,6 +51,14 @@ th{position:sticky;top:0;background:var(--bg);font-weight:600;color:var(--mute)}
 td.n{text-align:right}tbody tr{cursor:pointer}tbody tr:hover{background:#f3f1ec}tr.sel{background:#e7effd!important}
 .preview{border-left:1px solid var(--line);padding:12px;background:var(--panel);overflow:auto}
 .preview svg{display:block;margin:10px auto;max-width:100%}
+.zoomable{cursor:zoom-in}td .edited{color:var(--acc)}
+#v-part{background:#f4f2ee;overflow:hidden}
+.pv-svg,.pv-gl{position:absolute;inset:0;width:100%;height:100%;touch-action:none;user-select:none}
+.pv-svg .pv-hole,.pv-svg .pv-edge{cursor:pointer}.pv-svg .pv-face{cursor:crosshair}
+.pv-bar{position:absolute;top:10px;left:10px;z-index:2;display:flex;gap:8px;align-items:center}
+.pv-bar .seg button{padding:5px 12px;white-space:nowrap}
+.pv-nav button{min-width:32px;font-size:16px;padding:2px 8px}
+#tabs.partmode #views,#tabs.partmode label,#tabs.partmode #fit,#tabs.partmode #shot{visibility:hidden}
 dl{display:grid;grid-template-columns:auto 1fr;gap:4px 10px;margin:0}dt{color:var(--mute)}dd{margin:0}
 #v-sheets{padding:12px;display:grid;grid-template-columns:repeat(auto-fill,minmax(420px,1fr));gap:14px;align-content:start;grid-auto-rows:max-content}
 figure{margin:0;background:var(--panel);border:1px solid var(--line);border-radius:8px;overflow:hidden}
@@ -205,6 +213,7 @@ footer#status{display:flex;gap:16px;padding:6px 12px;border-top:1px solid var(--
         <label>X<input data-k="x" inputmode="decimal"></label><label>Y<input data-k="y" inputmode="decimal"></label><label>Z<input data-k="z" inputmode="decimal"></label><label>↻<input data-k="r" inputmode="decimal"></label>
       </div></div>
     <div class="view" id="v-parts" hidden></div>
+    <div class="view" id="v-part" hidden></div>
     <div class="view" id="v-sheets" hidden></div>
     <div class="view" id="v-hw" hidden></div>
     <div class="view" id="v-drawings" hidden></div>

@@ -26,6 +26,23 @@ Every push builds `casework` for Windows and Linux: Actions → latest run → A
 
 **Kitchen layouts.** With a wall selected, *Kitchen* → *Straight*, *L* or *U* lays out a kitchen starting from that wall (and the next one or two, going round the room): L corners (base and wall) in the inside corners that are clear, an 800 sink base under the window (else mid-wall) with a dishwasher beside it on the roomier side, a 600 hob base with drawers in the middle of the longest free stretch on another wall (the far wall in a U), then the walls filled as above. A project that already has a sink or hob keeps it and gets no second one; cabinets already there are worked round. `casework layout kitchen.json u 0` does the same.
 
+**Part view.** Double-click any panel in 3D (or *Edit* / double-click a row in *Parts*) to open that part on its own. *2D* is its drawing, either face: wheel or pinch to zoom, drag to pan, *Fit* (F) to reset. Bores are blue (blind), red (through) and green (added by you); click one to see its size and its distance from the left and bottom edges, drag it or use the arrow keys (Shift = 10 mm) to move it, Delete to remove it, and double-click the face to add one (same size as the last). Edge bores move along their edge. Click an edge to band or unband it (orange = banded). *3D* shows the part with its bores, pockets and banding to turn round. The panel sets the material (any of the same thickness), grain direction, banding and the selected bore's X, Y, Ø, depth (0 = through) and face or edge; ‹ › (or ← → with no bore selected) step through the cabinet's parts; *Reset part* drops its edits. Edited parts show ✎ in the parts list.
+
+Edits are kept in the project by part id and applied after the cabinets are built, so cut lists, labels, nesting, DXF and NC all follow them:
+
+```json
+"part_edits": {
+  "b2-side-l": {
+    "edges": [false, false, true, true],
+    "grain_y": true,
+    "add": [{ "x": 277, "y": 611, "dia": 5, "depth": 12 }, { "x": 200, "y": 0, "dia": 8, "depth": 30, "edge": 0 }],
+    "remove": [{ "x": 50, "y": 861, "dia": 7, "depth": 0 }]
+  }
+}
+```
+
+Coordinates are face 1 of the part drawing (x right, y up from the bottom-left corner); `edge` 0–3 = bottom, right, top, left. A removed bore is matched on position, diameter and edge. If the cabinet changes so an edit no longer fits — the bore to remove is gone, an added one is off the part or deeper than it, the material is another thickness, or the part itself no longer exists — the build warns instead of guessing. Deleting a cabinet drops its parts' edits.
+
 **Columns, boxing, radiators.** Added on a wall like doors and windows (position, width, depth out from the wall, height, and height from the floor for radiators). Filling keeps clear of them at their heights, cabinets that run into one get a warning, and they show in 3D, the plan and the wall elevations.
 
 **DXF floor plan.** *DXF plan* (or `casework import-room`) reads LINE, LWPOLYLINE and POLYLINE outlines (arcs, text and dimensions are ignored), joins lines into closed loops, and takes the largest — or, when walls are drawn with both faces, the inside face. Units come from `$INSUNITS`, else are guessed from the size (m / cm / mm). Doors and windows are added afterwards on the walls.

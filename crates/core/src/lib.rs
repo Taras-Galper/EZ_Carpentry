@@ -4,6 +4,7 @@
 
 pub mod accessories;
 pub mod checks;
+pub mod edits;
 pub mod export;
 pub mod import_dxf;
 pub mod install;
