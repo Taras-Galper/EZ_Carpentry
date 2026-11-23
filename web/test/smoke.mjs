@@ -122,8 +122,9 @@ for (const engine of ["wasm", "js"]) {
   await page.close();
 }
 
-// Part view: double-click a door in 3D opens it on its own; double-click on the
-// drawing adds a bore that the project keeps; Esc goes back.
+// Drill down: double-click a cabinet in 3D opens it with its parts; a part
+// from its list opens on its own; double-click on the drawing adds a bore the
+// project keeps; Esc goes back a level at a time.
 {
   const page = await browser.newPage({ viewport: { width: 1500, height: 900 } });
   const errors = [];
@@ -134,11 +135,15 @@ for (const engine of ["wasm", "js"]) {
   const at = await page.evaluate(() => {
     const e = window.ezCarpentry, c = e.project.cabinets.find((c) => c.kind === "base" && c.corner === "none");
     const r = c.rotation * Math.PI / 180, lx = c.width / 2, lz = c.depth + 5;
-    return e.worldToScreen(c.x + lx * Math.cos(r) + lz * Math.sin(r), c.elevation + c.height / 2, c.z - lx * Math.sin(r) + lz * Math.cos(r));
+    return { id: c.id, ...e.worldToScreen(c.x + lx * Math.cos(r) + lz * Math.sin(r), c.elevation + c.height / 2, c.z - lx * Math.sin(r) + lz * Math.cos(r)) };
   });
-  await page.mouse.dblclick(at.x, at.y); await page.waitForTimeout(400);
+  await page.mouse.dblclick(at.x, at.y); await page.waitForTimeout(500);
+  const cab = await page.evaluate(() => window.ezCarpentry.cabView);
+  const rows = await page.locator(".cv-list li[data-id]").count();
+  check(cab === at.id && rows > 3, `cabinet view opens from 3D (${cab}, ${rows} parts)`);
+  await page.locator(".cv-list li[data-id]").first().click(); await page.waitForTimeout(400);
   const opened = await page.evaluate(() => window.ezCarpentry.partId);
-  check(!!opened && !(await page.locator("#v-part").isHidden()), `part view opens from 3D (${opened})`);
+  check(!!opened && opened.startsWith(at.id + "-") && !(await page.locator("#v-part").isHidden()), `part view opens from the list (${opened})`);
   if (opened) {
     const f = await page.locator(".pv-face").boundingBox();
     await page.mouse.dblclick(f.x + f.width * 0.5, f.y + f.height * 0.5); await page.waitForTimeout(300);
@@ -146,9 +151,11 @@ for (const engine of ["wasm", "js"]) {
     check(e?.add?.length === 1, `bore added on the part ${JSON.stringify(e)}`);
     await page.click("#v-part .pv-svg", { position: { x: 5, y: 5 } }); // drop the bore selection
     await page.keyboard.press("Escape"); await page.waitForTimeout(200);
-    check(await page.evaluate(() => window.ezCarpentry.partId === null), "Esc closes the part view");
+    check(await page.evaluate(() => window.ezCarpentry.partId === null && !!window.ezCarpentry.cabView), "Esc goes back to the cabinet");
+    await page.keyboard.press("Escape"); await page.waitForTimeout(200);
+    check(await page.evaluate(() => window.ezCarpentry.cabView === null), "Esc again goes back to the room");
   }
-  check(errors.length === 0, `part view: no page errors ${errors.join(" | ")}`);
+  check(errors.length === 0, `drill down: no page errors ${errors.join(" | ")}`);
   await page.close();
 }
 

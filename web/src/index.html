@@ -53,9 +53,22 @@ td.n{text-align:right}tbody tr{cursor:pointer}tbody tr:hover{background:#f3f1ec}
 .preview svg{display:block;margin:10px auto;max-width:100%}
 .zoomable{cursor:zoom-in}td .edited{color:var(--acc)}
 #v-part{background:#f4f2ee;overflow:hidden}
+#v-cab{display:grid;grid-template-columns:1fr 300px;overflow:hidden;background:#f4f2ee}
+.cv-gl{position:relative;min-height:0;overflow:hidden}.cv-gl canvas{display:block;touch-action:none}
+.cv-bar{position:absolute;top:10px;left:10px;right:10px;z-index:2;display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.cv-explode{display:flex;gap:8px;align-items:center;color:var(--mute);margin-left:auto}.cv-explode input{width:140px}
+.cv-tip{position:absolute;z-index:3;pointer-events:none;background:var(--ink);color:#fff;padding:3px 8px;border-radius:5px;white-space:nowrap}
+.cv-list{list-style:none;margin:0;padding:0;overflow:auto;border-left:1px solid var(--line);background:var(--panel)}
+.cv-list li{display:grid;grid-template-columns:56px 1fr auto;gap:10px;align-items:center;padding:6px 10px;border-bottom:1px solid var(--line);cursor:pointer}
+.cv-list li.hot,.cv-list li:hover,.cv-list li:focus{background:#eef3fd;outline:none}
+.cv-list li.cv-head{display:block;cursor:default;background:none;padding:10px;text-transform:uppercase;letter-spacing:.04em;font-size:11px;color:var(--mute)}
+.cv-thumb svg{display:block;margin:auto}.cv-name{display:flex;flex-direction:column;min-width:0}.cv-name small{color:var(--mute)}.cv-go{color:var(--mute);font-size:18px}
+.crumbs{display:flex;gap:6px;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:5px 10px;white-space:nowrap}
+.row button.ic{padding:5px 5px;min-width:26px}
+.crumbs a{color:var(--acc);text-decoration:none}.crumbs .sep{color:var(--mute)}
 .pv-svg,.pv-gl{position:absolute;inset:0;width:100%;height:100%;touch-action:none;user-select:none}
 .pv-svg .pv-hole,.pv-svg .pv-edge{cursor:pointer}.pv-svg .pv-face{cursor:crosshair}
-.pv-bar{position:absolute;top:10px;left:10px;z-index:2;display:flex;gap:8px;align-items:center}
+.pv-bar{position:absolute;top:10px;left:10px;right:10px;z-index:2;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .pv-bar .seg button{padding:5px 12px;white-space:nowrap}
 .pv-nav button{min-width:32px;font-size:16px;padding:2px 8px}
 #tabs.partmode #views,#tabs.partmode label,#tabs.partmode #fit,#tabs.partmode #shot{visibility:hidden}
@@ -126,6 +139,7 @@ footer#status{display:flex;gap:16px;padding:6px 12px;border-top:1px solid var(--
 
 /* ---------- phone ---------- */
 @media (max-width:760px){
+  #v-cab{grid-template-columns:1fr;grid-template-rows:55% 45%}.cv-list{border-left:none;border-top:1px solid var(--line)}.cv-explode input{width:100px}
   body{grid-template-rows:auto 1fr auto}
   header{padding:6px 8px;gap:4px}
   header .logo{margin-right:auto;font-size:14px}
@@ -213,6 +227,7 @@ footer#status{display:flex;gap:16px;padding:6px 12px;border-top:1px solid var(--
         <label>X<input data-k="x" inputmode="decimal"></label><label>Y<input data-k="y" inputmode="decimal"></label><label>Z<input data-k="z" inputmode="decimal"></label><label>↻<input data-k="r" inputmode="decimal"></label>
       </div></div>
     <div class="view" id="v-parts" hidden></div>
+    <div class="view" id="v-cab" hidden></div>
     <div class="view" id="v-part" hidden></div>
     <div class="view" id="v-sheets" hidden></div>
     <div class="view" id="v-hw" hidden></div>

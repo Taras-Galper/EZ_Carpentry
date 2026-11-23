@@ -341,6 +341,7 @@ export function renderPartView(host, ctx) {
     host.__built = true;
     host.append(
       h("div", { class: "pv-bar" },
+        h("span", { class: "crumbslot" }),
         h("div", { class: "seg", id: "pv-mode" }, ...[["2d", "2D"], ["3d", "3D"]].map(([k, t]) =>
           h("button", { "data-mode": k, onclick: () => { st.mode = k; renderPartView(host, host.__ctx); } }, t))),
         h("div", { class: "seg", id: "pv-face" }, ...[[1, "Face 1"], [2, "Face 2"]].map(([k, t]) =>
@@ -351,6 +352,7 @@ export function renderPartView(host, ctx) {
     new ResizeObserver(() => { if (!host.hidden && host.__ctx) { if (st.mode === "2d" && st.view) draw(host.querySelector(".pv-svg"), host.__ctx); else if (st.mode === "3d") build3d(host.querySelector(".pv-gl"), host.__ctx); } }).observe(host);
   }
   host.__ctx = ctx;
+  if (ctx.crumbs) host.querySelector(".crumbslot").replaceChildren(ctx.crumbs);
   host.querySelectorAll("[data-mode]").forEach((b) => b.classList.toggle("on", b.dataset.mode === st.mode));
   host.querySelectorAll("[data-face]").forEach((b) => b.classList.toggle("on", +b.dataset.face === st.face));
   host.querySelector("#pv-face").hidden = st.mode !== "2d";

@@ -4,6 +4,7 @@ import { TransformControls } from "three/examples/jsm/controls/TransformControls
 import init, * as cwWasm from "../pkg/casework_wasm.js";
 import wasmBytes from "../pkg/casework_wasm_bg.wasm";
 import { renderPartView, partPanel, partKey } from "./partview.js";
+import { renderCabView } from "./cabview.js";
 import { wallOf, walls as roomWalls, local as wallLocal, point as wallPoint, wallPieces, snapCorner, resizeWall, moveWithWalls } from "./room.js";
 
 const $ = (s, r = document) => r.querySelector(s);
@@ -31,6 +32,8 @@ const selSet = new Set();
 let selAnchor = null;
 // Part view: the id of the part shown on its own (null = off).
 let partId = null, partOwner = null;
+// Cabinet view: the cabinet shown on its own with its parts (null = off).
+let cabView = null;
 let multiMode = false; // taps add to the selection (phones have no Shift)
 const isSel = (id) => id === selected || selSet.has(id);
 const selection = () => project.cabinets.filter((c) => isSel(c.id));
@@ -200,6 +203,7 @@ function recompute() {
   for (const k of Object.keys(project.part_edits || {}))
     if (!project.cabinets.some((c) => c.id === k.split(/[-~]/)[0])) delete project.part_edits[k];
   if (partId && selected !== partOwner) partId = null;
+  if (cabView && selected !== cabView) cabView = selected && !selSet.size ? selected : null;
   const json = JSON.stringify(project);
   try {
     report = JSON.parse(cw.compute(json));
@@ -442,7 +446,7 @@ function renderPalette() {
 function renderList() {
   const ul = $("#list"); ul.replaceChildren();
   for (const c of project.cabinets) {
-    ul.append(h("li", { class: isSel(c.id) ? "sel" : "", onclick: (e) => { if ((e.shiftKey || multiMode) && selected) toggleSel(c.id); else { selected = c.id; selWall = null; closeSheetOnPhone(); } recompute(); } },
+    ul.append(h("li", { class: isSel(c.id) ? "sel" : "", ondblclick: () => openCab(c.id), onclick: (e) => { if ((e.shiftKey || multiMode) && selected) toggleSel(c.id); else { selected = c.id; selWall = null; closeSheetOnPhone(); } recompute(); } },
       h("b", {}, c.id), h("span", {}, c.name), h("em", {}, `${c.width}${isL(c) ? "/" + c.width2 : ""}×${c.height}×${c.depth}`)));
   }
 }
@@ -555,13 +559,14 @@ function renderProps() {
   put(
     h("div", { class: "row" },
       h("h3", {}, c.id),
+      cabView ? null : h("button", { class: "pri", id: "opencab", title: "See its parts (double-click)", onclick: () => openCab(c.id) }, "Open"),
       h("button", { onclick: () => {
         const d = structuredClone(c); d.id = uid(c.id.replace(/\d+$/, "")); d.x = c.x + c.width;
         project.cabinets.push(d); selected = d.id; recompute();
-      } }, "Duplicate"),
-      h("button", { title: "Rotate 90° (R)", onclick: () => rotateCabinet(c) }, "⟳"),
-      h("button", { title: "Save as preset", onclick: () => savePreset(c) }, "★"),
-      h("button", { class: multiMode ? "on" : "", title: "Add cabinets to the selection (or Shift-click)", "aria-label": "Select more", onclick: () => { multiMode = !multiMode; recompute(); } }, "+"),
+      }, class: "ic", title: "Duplicate", "aria-label": "Duplicate" }, "⧉"),
+      h("button", { class: "ic", title: "Rotate 90° (R)", onclick: () => rotateCabinet(c) }, "⟳"),
+      h("button", { class: "ic", title: "Save as preset", onclick: () => savePreset(c) }, "★"),
+      h("button", { class: multiMode ? "ic on" : "ic", title: "Add cabinets to the selection (or Shift-click)", "aria-label": "Select more", onclick: () => { multiMode = !multiMode; recompute(); } }, "+"),
       h("button", { class: "danger", onclick: () => {
         project.cabinets = project.cabinets.filter((x) => x !== c); selected = null; recompute();
       } }, "Delete")),
@@ -887,10 +892,11 @@ function renderStatus() {
 // ---------- tabs ----------
 function renderTab() {
   $$("#tabs button[data-tab]").forEach((b) => b.classList.toggle("on", b.dataset.tab === tab));
-  const pc = partId && partCtx();
-  $$(".view").forEach((v) => (v.hidden = v.id !== (pc ? "v-part" : "v-" + tab)));
-  $("#tabs").classList.toggle("partmode", !!pc);
+  const pc = partId && partCtx(), cc = !pc && cabView && cabCtx();
+  $$(".view").forEach((v) => (v.hidden = v.id !== (pc ? "v-part" : cc ? "v-cab" : "v-" + tab)));
+  $("#tabs").classList.toggle("partmode", !!(pc || cc));
   if (pc) return renderPartView($("#v-part"), pc);
+  if (cc) return renderCabView($("#v-cab"), cc);
   if (tab === "3d") updateScene();
   if (tab === "parts") renderParts();
   if (tab === "sheets") renderSheets();
@@ -1007,7 +1013,7 @@ function renderDrawings() {
 const matOf = (id) => project.materials.find((m) => m.id === id) || { name: id, color: "#ccc", grain: false };
 
 function partSvg(p, size = 260) {
-  const pad = 12, s = (size - 2 * pad) / Math.max(p.w, p.h);
+  const pad = Math.min(12, size * 0.06), s = (size - 2 * pad) / Math.max(p.w, p.h);
   const W = p.w * s + 2 * pad, H = p.h * s + 2 * pad;
   const X = (x) => pad + x * s, Y = (y) => H - pad - y * s;
   const ns = "http://www.w3.org/2000/svg";
@@ -1118,10 +1124,38 @@ function partCtx() {
     refresh: () => { renderProps(); renderTab(); },
     close: () => { partId = null; renderProps(); renderTab(); },
     step: (d) => { partId = sib[(k + d + sib.length) % sib.length].id; renderProps(); renderTab(); },
-    h, matOf, materials: project.materials, summarizeHoles,
+    h, matOf, materials: project.materials, summarizeHoles, crumbs: crumbs(project.cabinets.find((c) => c.id === p.cabinet), p),
     exportDxf: () => saveFile(`${slug(p.id)}.dxf`, cw.export_one(JSON.stringify(project), "part_dxf", i)),
   };
 }
+
+// Room › cabinet › part: each crumb goes back to its level.
+function crumbs(c, p) {
+  const go = (fn) => (e) => { e.preventDefault(); fn(); };
+  const items = [h("a", { href: "#", onclick: go(() => { partId = null; cabView = null; renderProps(); renderTab(); }) }, project.name || "Room")];
+  if (c) items.push(p ? h("a", { href: "#", onclick: go(() => { partId = null; cabView = c.id; renderProps(); renderTab(); }) }, `${c.id} ${c.name}`) : h("b", {}, `${c.id} ${c.name}`));
+  if (p) items.push(h("b", {}, p.name));
+  return h("nav", { class: "crumbs", "aria-label": "Breadcrumb" }, ...items.flatMap((x, i) => (i ? [h("span", { class: "sep" }, "›"), x] : [x])));
+}
+
+function cabCtx() {
+  const c = project.cabinets.find((q) => q.id === cabView);
+  if (!c) { cabView = null; return null; }
+  return {
+    cab: c, parts: report.build.parts.filter((p) => p.cabinet === c.id),
+    partObject: (p) => partObject(p), partSvg, matOf, h, crumbs: crumbs(c),
+    edited: (id) => !!project.part_edits?.[id], openPart,
+  };
+}
+
+function openCab(id) {
+  if (!project.cabinets.some((c) => c.id === id)) return;
+  cabView = id; partId = null; selected = id; selWall = null; selSet.clear(); multiMode = false;
+  closeSheetOnPhone();
+  recompute();
+}
+
+function closeCab() { cabView = null; partId = null; renderProps(); renderTab(); }
 
 function openPart(id) {
   const p = report.build.parts.find((q) => q.id === id); if (!p) return;
@@ -1294,10 +1328,10 @@ function setup3d() {
   });
   el.addEventListener("dblclick", (e) => {
     if (drawing) { if (drawing.pts.length >= 3) finishDrawing(); return; }
-    // double-click a panel: open it on its own
+    // double-click a cabinet: open it on its own, with its parts
     aim(e);
-    const hit = ray.intersectObjects(root.children, true).find((x) => shown(x.object) && x.object.userData.part);
-    if (hit) openPart(hit.object.userData.part);
+    const hit = ray.intersectObjects(root.children, true).find((x) => shown(x.object) && x.object.userData.cab);
+    if (hit) openCab(hit.object.userData.cab);
   });
   el.addEventListener("pointermove", (e) => {
     if (drawing) { aim(e); drawCursor(); return; }
@@ -1677,6 +1711,63 @@ const hobMat = new THREE.MeshStandardMaterial({ color: 0x151617, roughness: 0.25
 const steelMat = new THREE.MeshStandardMaterial({ color: 0xc9ccd0, roughness: 0.35, metalness: 0.7 });
 const bowlMat = new THREE.MeshStandardMaterial({ color: 0x6d7277, roughness: 0.5, metalness: 0.6 });
 const edgeMat = new THREE.LineBasicMaterial({ color: 0x5a554c, transparent: true, opacity: 0.55 });
+// One part's meshes in its cabinet's frame (cabinet-local mm); every mesh
+// carries userData.part so it can be picked.
+const unitBox = new THREE.BoxGeometry(1, 1, 1), unitEdges = new THREE.EdgesGeometry(unitBox);
+function partObject(p, sel = false) {
+  const g = new THREE.Group(), box = unitBox, edges = unitEdges;
+  g.userData.part = p.id;
+  const [x, y, z] = p.box3d.pos, [sx, sy, sz] = p.box3d.size;
+  if (p.shape?.length >= 3) {
+    // horizontal panel with a plan outline: extrude it down from its top
+    const sh = new THREE.Shape(p.shape.map(([x, z]) => new THREE.Vector2(x, z)));
+    const geo = new THREE.ExtrudeGeometry(sh, { depth: p.box3d.size[1], bevelEnabled: false });
+    geo.rotateX(Math.PI / 2);
+    const m = new THREE.Mesh(geo, partMat(p, p.box3d.size, sel));
+    m.position.y = p.box3d.pos[1] + p.box3d.size[1];
+    m.userData.cab = p.cabinet; m.userData.part = p.id;
+    const l = new THREE.LineSegments(new THREE.EdgesGeometry(geo), edgeMat); l.position.copy(m.position);
+    g.add(m, l);
+  } else for (const b of [p.box3d, ...(p.more3d || [])]) {
+    const m = new THREE.Mesh(box, partMat(p, b.size, sel));
+    m.scale.set(...b.size); m.position.set(b.size[0] / 2, b.size[1] / 2, b.size[2] / 2);
+    m.userData.cab = p.cabinet; m.userData.part = p.id;
+    const l = new THREE.LineSegments(edges, edgeMat); l.scale.copy(m.scale); l.position.copy(m.position);
+    // boxes turn about their corner (angled doors)
+    const pivot = new THREE.Group(); pivot.position.set(...b.pos); pivot.rotation.y = THREE.MathUtils.degToRad(p.rot || 0);
+    pivot.add(m, l); g.add(pivot);
+  }
+  // Routed Shaker recess on the outside face (front parts are drawn inside face up, so x mirrors)
+  if (p.role === "front" && !p.rot) for (const k of (p.pockets || []).filter((k) => k.face === 2)) {
+    const rc = new THREE.Mesh(box, recessMat);
+    if (sx < sz) { // L corner return leaf: faces -x, drawing x runs back along z
+      rc.scale.set(1, k.h, k.w);
+      rc.position.set(x - 0.6, y + k.y + k.h / 2, z + sz - (k.x + k.w / 2));
+    } else {
+      rc.scale.set(k.w, k.h, 1);
+      rc.position.set(x + sx - (k.x + k.w / 2), y + k.y + k.h / 2, z + sz + 0.6);
+    }
+    const rl = new THREE.LineSegments(edges, edgeMat); rl.scale.copy(rc.scale); rl.position.copy(rc.position);
+    g.add(rc, rl);
+  }
+  // Sink and hob on worktop cut-outs: drawing y runs from the front edge.
+  for (const c of p.cutouts || []) {
+    const cx = x + c.x + c.w / 2, cz = z + sz - (c.y + c.h / 2), top = y + sy;
+    if (c.kind === "hob") {
+      const hob = new THREE.Mesh(box, hobMat);
+      hob.scale.set(c.w + 30, 6, c.h + 30); hob.position.set(cx, top + 3, cz);
+      g.add(hob);
+    } else {
+      const rim = new THREE.Mesh(box, steelMat);
+      rim.scale.set(c.w + 30, 2, c.h + 30); rim.position.set(cx, top + 1, cz);
+      const bowl = new THREE.Mesh(box, bowlMat);
+      bowl.scale.set(c.w - 30, 2, c.h - 30); bowl.position.set(cx, top + 2.5, cz);
+      g.add(rim, bowl);
+    }
+  }
+  return g;
+}
+
 function updateScene() {
   if (!renderer) return;
   root.clear();
@@ -1718,55 +1809,7 @@ function updateScene() {
   }
   for (const p of report.build.parts) {
     if (!showFronts && p.role === "front") continue;
-    const g = groups.get(p.cabinet); if (!g) continue;
-    const [x, y, z] = p.box3d.pos, [sx, sy, sz] = p.box3d.size;
-    if (p.shape?.length >= 3) {
-      // horizontal panel with a plan outline: extrude it down from its top
-      const sh = new THREE.Shape(p.shape.map(([x, z]) => new THREE.Vector2(x, z)));
-      const geo = new THREE.ExtrudeGeometry(sh, { depth: p.box3d.size[1], bevelEnabled: false });
-      geo.rotateX(Math.PI / 2);
-      const m = new THREE.Mesh(geo, partMat(p, p.box3d.size, isSel(p.cabinet)));
-      m.position.y = p.box3d.pos[1] + p.box3d.size[1];
-      m.userData.cab = p.cabinet; m.userData.part = p.id;
-      const l = new THREE.LineSegments(new THREE.EdgesGeometry(geo), edgeMat); l.position.copy(m.position);
-      g.add(m, l);
-    } else for (const b of [p.box3d, ...(p.more3d || [])]) {
-      const m = new THREE.Mesh(box, partMat(p, b.size, isSel(p.cabinet)));
-      m.scale.set(...b.size); m.position.set(b.size[0] / 2, b.size[1] / 2, b.size[2] / 2);
-      m.userData.cab = p.cabinet; m.userData.part = p.id;
-      const l = new THREE.LineSegments(edges, edgeMat); l.scale.copy(m.scale); l.position.copy(m.position);
-      // boxes turn about their corner (angled doors)
-      const pivot = new THREE.Group(); pivot.position.set(...b.pos); pivot.rotation.y = THREE.MathUtils.degToRad(p.rot || 0);
-      pivot.add(m, l); g.add(pivot);
-    }
-    // Routed Shaker recess on the outside face (front parts are drawn inside face up, so x mirrors)
-    if (p.role === "front" && !p.rot) for (const k of (p.pockets || []).filter((k) => k.face === 2)) {
-      const rc = new THREE.Mesh(box, recessMat);
-      if (sx < sz) { // L corner return leaf: faces -x, drawing x runs back along z
-        rc.scale.set(1, k.h, k.w);
-        rc.position.set(x - 0.6, y + k.y + k.h / 2, z + sz - (k.x + k.w / 2));
-      } else {
-        rc.scale.set(k.w, k.h, 1);
-        rc.position.set(x + sx - (k.x + k.w / 2), y + k.y + k.h / 2, z + sz + 0.6);
-      }
-      const rl = new THREE.LineSegments(edges, edgeMat); rl.scale.copy(rc.scale); rl.position.copy(rc.position);
-      g.add(rc, rl);
-    }
-    // Sink and hob on worktop cut-outs: drawing y runs from the front edge.
-    for (const c of p.cutouts || []) {
-      const cx = x + c.x + c.w / 2, cz = z + sz - (c.y + c.h / 2), top = y + sy;
-      if (c.kind === "hob") {
-        const hob = new THREE.Mesh(box, hobMat);
-        hob.scale.set(c.w + 30, 6, c.h + 30); hob.position.set(cx, top + 3, cz);
-        g.add(hob);
-      } else {
-        const rim = new THREE.Mesh(box, steelMat);
-        rim.scale.set(c.w + 30, 2, c.h + 30); rim.position.set(cx, top + 1, cz);
-        const bowl = new THREE.Mesh(box, bowlMat);
-        bowl.scale.set(c.w - 30, 2, c.h - 30); bowl.position.set(cx, top + 2.5, cz);
-        g.add(rim, bowl);
-      }
-    }
+    groups.get(p.cabinet)?.add(partObject(p, isSel(p.cabinet)));
   }
   if (!framed) { frame(); framed = true; }
   const sc = selected && project.cabinets.find((c) => c.id === selected);
@@ -1921,7 +1964,7 @@ async function main() {
   $("#csv").onclick = () => saveFile(slug(project.name) + "_cutlist.csv", cw.export_one(JSON.stringify(project), "cutlist", 0));
   $("#labels").onclick = () => saveFile(slug(project.name) + "_labels.html", cw.export_one(JSON.stringify(project), "labels_html", 0));
   $("#obj").onclick = () => saveFile(slug(project.name) + ".obj", cw.export_one(JSON.stringify(project), "obj", 0));
-  $$("#tabs button[data-tab]").forEach((b) => (b.onclick = () => { tab = b.dataset.tab; if (partId) { partId = null; renderProps(); } renderTab(); }));
+  $$("#tabs button[data-tab]").forEach((b) => (b.onclick = () => { tab = b.dataset.tab; if (partId || cabView) { partId = null; cabView = null; renderProps(); } renderTab(); }));
   $("#fronts").onchange = (e) => { showFronts = e.target.checked; updateScene(); };
   $("#fit").onclick = frame;
   $("#shot").onclick = () => saveFile(slug(project.name) + ".png", dataUrlBytes(snapshot(2400, 1500)));
@@ -1954,6 +1997,10 @@ async function main() {
     if (mod && e.key.toLowerCase() === "z") { e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
     if (mod && e.key.toLowerCase() === "y") { e.preventDefault(); redo(); return; }
     if (partId && !mod) { const pc = partCtx(); if (pc && partKey(e, pc)) return; }
+    if (cabView && !partId) {
+      if (e.key === "Escape") { closeCab(); return; }
+      if (e.key.startsWith("Arrow")) return; // the cabinet stays put while it is open
+    }
     if ((e.key === "Delete" || e.key === "Backspace") && selected) {
       project.cabinets = project.cabinets.filter((c) => !isSel(c.id)); selected = null; recompute();
     }
@@ -1989,8 +2036,9 @@ async function main() {
     get selected() { return selected; },
     get view() { return view; },
     selectWall(i) { selWall = i; selected = null; recompute(); },
-    openPart,
+    openPart, openCab,
     get partId() { return partId; },
+    get cabView() { return cabView; },
     worldToScreen(x, y, z) {
       const r = renderer.domElement.getBoundingClientRect(), v = new THREE.Vector3(x, y, z).project(camera);
       return { x: r.left + ((v.x + 1) / 2) * r.width, y: r.top + ((1 - v.y) / 2) * r.height };
