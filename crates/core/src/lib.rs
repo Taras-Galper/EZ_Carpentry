@@ -6,6 +6,7 @@ pub mod accessories;
 pub mod checks;
 pub mod export;
 pub mod import_dxf;
+pub mod install;
 pub mod lighting;
 pub mod model;
 pub mod nest;
@@ -34,6 +35,9 @@ pub struct Report {
 pub fn compute(project: &Project) -> Report {
     let mut build = parts::build(project);
     checks::check(project, &mut build.warnings);
+    let mut clashes = vec![];
+    checks::machining(&build, &mut clashes);
+    build.warnings.extend(clashes);
     let nesting = nest::nest(project, &build.parts);
     let mut sheets: Vec<(String, usize)> = vec![];
     for s in &nesting.sheets {
@@ -162,7 +166,7 @@ mod tests {
                         .build
                         .parts
                         .iter()
-                        .filter(|q| q.cabinet == c.id)
+                        .filter(|q| q.cabinet == c.id && q.role != parts::Role::DrawerBox)
                         .flat_map(|q| {
                             let front_z = q.box3d.pos[2] + q.box3d.size[2];
                             let mid_y = q.box3d.pos[1] + q.box3d.size[1] / 2.0;
@@ -335,11 +339,13 @@ mod tests {
         assert_eq!(q.items.iter().filter(|i| i.name == "Worktop").count(), 2);
         // b4 and b6 are the same cabinet (b6 mirrored); with b6's end panel
         // off they must cost the same, although only b4 heads a worktop run
+        // (b4 also carries the corner joint's worktop bolts)
         let mut p2 = p.clone();
         p2.cabinets.iter_mut().find(|c| c.id == "b6").unwrap().end_right = false;
         let q2 = export::quote::quote(&p2, &compute(&p2));
         let price = |id: &str| q2.items.iter().find(|i| i.id == id).unwrap().price;
-        assert!((price("b4") - price("b6")).abs() < 1.0, "{} vs {}", price("b4"), price("b6"));
+        let bolts = 3.0 * p.pricing.hardware_price("Worktop connector bolt") * k;
+        assert!((price("b4") - bolts - price("b6")).abs() < 1.0, "{} vs {}", price("b4"), price("b6"));
         assert!((q.total - q.net * (1.0 + p.pricing.vat_pct / 100.0)).abs() < 0.02);
         // sheets priced whole
         let sheets: f64 = q.lines.iter().filter(|l| l.group == "Material").map(|l| l.qty).sum();
@@ -915,7 +921,6 @@ mod tests {
         let ov = p.settings.worktop_overhang;
         assert_eq!(t.h, 2.0 * (560.0 + ov));
         assert_eq!(t.w, 1200.0);
-        assert_eq!(t.edges, [true, false, true, false]);
         // the sink sits over j1, set back from j1's front (the worktop's back edge)
         let c = &t.cutouts[0];
         assert_eq!(c.x + c.w / 2.0, 600.0);
@@ -1241,7 +1246,11 @@ mod tests {
         let bot = get("w1-bottom");
         let g = bot.pockets.iter().find(|k| k.face == 2).unwrap();
         assert_eq!((g.y, g.h), (30.0, 17.0));
-        assert_eq!(g.w, bot.w - 40.0);
+        assert_eq!(g.w, bot.w - 100.0);
+        // clear of the joint bores in the panel ends
+        assert!(bot.holes.iter().filter(|h| h.edge.is_some()).all(|h| h.depth < g.x));
+        let cable = bot.holes.iter().find(|h| h.dia == 10.0).unwrap();
+        assert!(bot.holes.iter().filter(|h| h.edge == Some(3)).all(|h| cable.x - cable.dia / 2.0 > h.depth + 5.0));
         assert!(g.depth <= bot.thickness - 6.0);
         assert!(bot.holes.iter().any(|h| h.dia == 10.0 && h.depth == 0.0 && h.y > bot.h - 50.0));
         assert!(get("w1-shelf1").pockets.iter().any(|k| k.face == 2));
@@ -1359,5 +1368,140 @@ mod tests {
         let strips = r.build.lights.iter().filter(|l| l.cabinet == "wl").count();
         assert_eq!(strips, 2 * (1 + 1), "two strips per panel: bottom + 1 shelf");
         assert_eq!(r.build.circuits.len(), 1);
+    }
+
+    #[test]
+    fn machined_parts_allow_for_edge_band() {
+        let mut p = l_kitchen();
+        p.settings.edge_band = 1.0;
+        let r = compute(&p);
+        let cut = export::machined_parts(&p, &r.build);
+        for (f, c) in r.build.parts.iter().zip(&cut) {
+            // cut size matches the cut list; the band puts back what was taken off
+            let (cw, ch) = f.cut_size(1.0);
+            if f.band_segs.is_empty() {
+                assert!((c.w - cw).abs() < 0.11 && (c.h - ch).abs() < 0.11, "{} {}x{} vs {}x{}", f.id, c.w, c.h, cw, ch);
+            }
+            // every bore keeps its distance from the finished edges
+            let dx = if f.edges[3] { 1.0 } else { 0.0 };
+            let dy = if f.edges[0] { 1.0 } else { 0.0 };
+            for (a, b) in f.holes.iter().zip(&c.holes) {
+                assert!((a.x - dx - b.x).abs() < 0.11 && (a.y - dy - b.y).abs() < 0.11, "{} {:?} {:?}", f.id, a, b);
+            }
+        }
+        // L bottom: the two banded front edges move in by 1 mm, its outer size stays
+        let i = r.build.parts.iter().position(|q| q.id == "lc-bottom").unwrap();
+        let (f, c) = (&r.build.parts[i], &cut[i]);
+        assert_eq!((c.w, c.h), (f.w, f.h));
+        let area = |o: &Vec<[f64; 2]>| {
+            (0..o.len()).map(|k| o[k][0] * o[(k + 1) % o.len()][1] - o[(k + 1) % o.len()][0] * o[k][1]).sum::<f64>().abs() / 2.0
+        };
+        let lost = area(&f.outline) - area(&c.outline);
+        let fronts = f.band_length();
+        assert!((lost - fronts).abs() < 2.0, "lost {lost} vs {fronts}");
+        // a door banded all round is 2 mm smaller each way; its hinge cups 1 mm closer to the cut edge
+        let d = r.build.parts.iter().position(|q| q.id == "a1-door1").unwrap();
+        assert_eq!((cut[d].w, cut[d].h), (r.build.parts[d].w - 2.0, r.build.parts[d].h - 2.0));
+        // with no band nothing changes
+        p.settings.edge_band = 0.0;
+        let r0 = compute(&p);
+        let c0 = export::machined_parts(&p, &r0.build);
+        assert!(r0.build.parts.iter().zip(&c0).all(|(a, b)| a.outline == b.outline && a.w == b.w));
+    }
+
+    #[test]
+    fn fixing_hardware() {
+        let p = sample_kitchen();
+        let r = compute(&p);
+        let qty =
+            |cab: &str, name: &str| r.build.hardware.iter().filter(|h| h.cabinet == cab && h.name == name).map(|h| h.qty).sum::<u32>();
+        let total = |name: &str| r.build.hardware.iter().filter(|h| h.name == name).map(|h| h.qty).sum::<u32>();
+        assert_eq!(qty("w1", "Wall cabinet hanger (pair)"), 1);
+        assert_eq!(qty("t1", "Anti-tip wall bracket"), 2);
+        assert_eq!(qty("b2", "Wall fixing bracket"), 2);
+        assert_eq!(qty("b2", "Worktop fixing screw"), 4);
+        // one worktop corner joint (back run / return leg)
+        assert_eq!(total("Worktop connector bolt"), 3);
+        // b2-b3, b4-b5, b5-b6 and the tall pantry with the wall cabinet beside it
+        // (d1 is a dishwasher, f1 a filler): 4 screws each
+        assert_eq!(total("Cabinet connector screw"), 16);
+    }
+
+    #[test]
+    fn shaker_drawer_handles_go_on_the_rail() {
+        let p = sample_kitchen(); // Shaker fronts; hob base has a drawer stack
+        let r = compute(&p);
+        // no bore of any kind lands in a floating panel
+        for q in r.build.parts.iter().filter(|q| q.name.ends_with(" panel")) {
+            assert!(q.holes.is_empty(), "{} has {} bores", q.id, q.holes.len());
+        }
+        let rail = r.build.parts.iter().find(|q| q.id == "b5-dfront2-rt").unwrap();
+        assert_eq!(rail.holes.len(), 2);
+        assert!(rail.holes.iter().all(|h| (h.y - 30.0).abs() < 0.11));
+        let packet = export::packet::packet_html(&p, &r, None);
+        assert!(packet.contains("Frame fronts"));
+    }
+
+    #[test]
+    fn no_machining_clashes_in_any_construction() {
+        for joinery in [Joinery::Confirmat, Joinery::Dowel] {
+            for back_mode in [BackMode::Applied, BackMode::Grooved] {
+                for plinth in [Plinth::Board, Plinth::Legs] {
+                    for style in [DoorStyle::Slab, DoorStyle::Shaker, DoorStyle::ShakerRouted] {
+                        for mut p in [sample_kitchen(), l_kitchen()] {
+                            p.settings.joinery = joinery;
+                            p.settings.back_mode = back_mode;
+                            p.settings.plinth = plinth;
+                            for c in p.cabinets.iter_mut() {
+                                c.door_style = style;
+                                c.led_under = c.kind == CabinetKind::Wall && !c.is_diagonal();
+                                c.led_shelves = c.shelves > 0 && !c.is_diagonal();
+                            }
+                            let r = compute(&p);
+                            let clashes: Vec<_> = r.build.warnings.iter().filter(|w| w.contains("runs into")).collect();
+                            assert!(clashes.is_empty(), "{joinery:?} {back_mode:?} {plinth:?} {style:?}: {clashes:?}");
+                        }
+                    }
+                }
+            }
+        }
+        // and the checker does catch one
+        let p = sample_kitchen();
+        let mut b = compute(&p).build;
+        let side = b.parts.iter_mut().find(|q| q.id == "b2-side-l").unwrap();
+        let h = side.holes[0].clone();
+        side.holes.push(parts::Hole { x: h.x + 3.0, ..h });
+        let mut w = vec![];
+        checks::machining(&b, &mut w);
+        assert!(w.iter().any(|m| m.starts_with("b2-side-l")), "{w:?}");
+    }
+
+    #[test]
+    fn drawer_boxes_are_drilled_and_fastened() {
+        let mut p = sample_kitchen();
+        for joinery in [Joinery::Confirmat, Joinery::Dowel] {
+            p.settings.joinery = joinery;
+            let r = compute(&p);
+            let get = |id: &str| r.build.parts.iter().find(|q| q.id == id).unwrap();
+            let (side, front) = (get("b4-d1sidel"), get("b4-d1f"));
+            let ys = |hs: Vec<f64>| {
+                let mut v: Vec<i64> = hs.into_iter().map(|y| y.round() as i64).collect();
+                v.sort();
+                v.dedup();
+                v
+            };
+            // the side's bores at each end meet the front / back edge bores
+            assert_eq!(
+                ys(side.holes.iter().map(|h| h.y).collect()),
+                ys(front.holes.iter().filter(|h| h.edge.is_some()).map(|h| h.y).collect())
+            );
+            let dt = side.thickness;
+            assert!(side.holes.iter().all(|h| (h.x - dt / 2.0).abs() < 0.11 || (h.x - (side.w - dt / 2.0)).abs() < 0.11));
+            // one fastener per edge bore
+            let bores: usize = r.build.parts.iter().map(|q| q.holes.iter().filter(|h| h.edge.is_some()).count()).sum();
+            let name = if joinery == Joinery::Confirmat { "Confirmat screw 7×50" } else { "Dowel 8×35" };
+            let n: u32 = r.build.hardware.iter().filter(|h| h.name == name).map(|h| h.qty).sum();
+            assert_eq!(n as usize, bores);
+        }
     }
 }

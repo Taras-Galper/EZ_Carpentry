@@ -70,17 +70,21 @@ pub struct Circuit {
 
 const DRIVERS: [f64; 6] = [20.0, 36.0, 60.0, 100.0, 150.0, 200.0];
 
+/// Profile grooves stop this far from the panel ends, clear of the joint
+/// bores (confirmat 45 mm deep) in the panel's ends.
+const END: f64 = 50.0;
+
 /// Groove and cable hole on a horizontal panel (drawn with y = 0 at its
-/// front): the groove on the underside (face 2), 20 mm in from each end.
+/// front): the groove on the underside (face 2), END in from each end.
 /// Returns the strip length, or None when the panel is too small.
 fn rout(s: &Led, p: &mut crate::parts::Part) -> Option<f64> {
-    let len = p.w - 40.0;
+    let len = p.w - 2.0 * END;
     if len < 100.0 || p.h < s.setback + s.profile_width + 60.0 {
         return None;
     }
     let depth = s.groove_depth.clamp(1.0, p.thickness - 6.0);
-    p.pockets.push(Pocket { x: 20.0, y: s.setback, w: (len * 10.0).round() / 10.0, h: s.profile_width, depth, r: 0.0, face: 2 });
-    p.holes.push(Hole { x: 40.0, y: ((p.h - 40.0) * 10.0).round() / 10.0, dia: s.cable_hole, depth: 0.0, edge: None });
+    p.pockets.push(Pocket { x: END, y: s.setback, w: (len * 10.0).round() / 10.0, h: s.profile_width, depth, r: 0.0, face: 2 });
+    p.holes.push(Hole { x: END + 20.0, y: ((p.h - 40.0) * 10.0).round() / 10.0, dia: s.cable_hole, depth: 0.0, edge: None });
     Some(len)
 }
 
@@ -98,21 +102,21 @@ fn rout_l(s: &Led, p: &mut crate::parts::Part) -> Option<Vec<Box3>> {
     let (xf, yf) = (v[0], v[1]);
     let (sb, pw) = (s.setback, s.profile_width);
     let (gx, gy) = (xf + sb, yf + sb); // groove inner lines
-    if gx + pw > p.w - 40.0 || gy + pw > p.h - 40.0 || gx < 120.0 || gy < 120.0 {
+    if gx + pw > p.w - END || gy + pw > p.h - END || gx < END + 100.0 || gy < END + 100.0 {
         return None;
     }
     let depth = s.groove_depth.clamp(1.0, p.thickness - 6.0);
     let r = |v: f64| (v * 10.0).round() / 10.0;
     // arm A front (along x) and arm B front (along y), overlapping in the corner square
-    p.pockets.push(Pocket { x: 20.0, y: r(gy), w: r(gx + pw - 20.0), h: pw, depth, r: 0.0, face: 2 });
-    p.pockets.push(Pocket { x: r(gx), y: 20.0, w: pw, h: r(gy - 20.0), depth, r: 0.0, face: 2 });
-    p.holes.push(Hole { x: 40.0, y: r(p.h - 40.0), dia: s.cable_hole, depth: 0.0, edge: None });
+    p.pockets.push(Pocket { x: END, y: r(gy), w: r(gx + pw - END), h: pw, depth, r: 0.0, face: 2 });
+    p.pockets.push(Pocket { x: r(gx), y: END, w: pw, h: r(gy - END), depth, r: 0.0, face: 2 });
+    p.holes.push(Hole { x: END + 20.0, y: r(p.h - 40.0), dia: s.cable_hole, depth: 0.0, edge: None });
     let [x0, y, z0] = p.box3d.pos;
     let z1 = z0 + p.h;
     // drawing (x_d, y_d) -> local (x0 + x_d, z1 - y_d)
     Some(vec![
-        Box3 { pos: [x0 + 20.0, y - 1.0, z1 - gy - pw], size: [gx + pw - 20.0, 2.0, pw] },
-        Box3 { pos: [x0 + gx, y - 1.0, z1 - gy], size: [pw, 2.0, gy - 20.0] },
+        Box3 { pos: [x0 + END, y - 1.0, z1 - gy - pw], size: [gx + pw - END, 2.0, pw] },
+        Box3 { pos: [x0 + gx, y - 1.0, z1 - gy], size: [pw, 2.0, gy - END] },
     ])
 }
 
@@ -152,7 +156,7 @@ pub fn cabinet(project: &Project, cab: &Cabinet, out: &mut Build) {
                     cabinet: cab.id.clone(),
                     place: place.into(),
                     length: len,
-                    box3d: Box3 { pos: [x + 20.0, y - 1.0, zf], size: [len, 2.0, s.profile_width] },
+                    box3d: Box3 { pos: [x + END, y - 1.0, zf], size: [len, 2.0, s.profile_width] },
                     circuit: String::new(),
                 });
             }

@@ -172,6 +172,39 @@ impl Cutout {
 }
 
 impl Part {
+    /// Not a plain rectangle: "L", "5-sided", "notched", or "" for a rectangle.
+    pub fn shape_label(&self) -> &'static str {
+        match self.outline.len() {
+            0..=4 => "",
+            5 => "5-sided",
+            6 if !self.band_segs.is_empty() => "L",
+            _ => "notched",
+        }
+    }
+
+    /// Banded shaped edges (outline segments beyond the four sides), as text.
+    pub fn band_segs_text(&self) -> String {
+        if self.band_segs.is_empty() {
+            return String::new();
+        }
+        let n = self.outline.len();
+        let lens: Vec<String> = self
+            .band_segs
+            .iter()
+            .filter(|&&i| i < n)
+            .map(|&i| {
+                let (a, b) = (self.outline[i], self.outline[(i + 1) % n]);
+                format!("{:.0}", ((b[0] - a[0]).powi(2) + (b[1] - a[1]).powi(2)).sqrt())
+            })
+            .collect();
+        format!("front {}", lens.join("+"))
+    }
+
+    /// Has operations on the second face (part is turned over for them).
+    pub fn face2(&self) -> bool {
+        self.pockets.iter().any(|k| k.face == 2)
+    }
+
     /// Banded edge length in mm.
     pub fn band_length(&self) -> f64 {
         let e = self.edges;
@@ -201,6 +234,88 @@ impl Part {
     pub fn cut_size(&self, band: f64) -> (f64, f64) {
         let e = |i: usize| if self.edges[i] { band } else { 0.0 };
         (self.w - e(1) - e(3), self.h - e(0) - e(2))
+    }
+
+    /// The part as it is cut, before edge banding: every banded edge (sides
+    /// in `edges`, segments in `band_segs`) moves in by the band thickness,
+    /// and bores, pockets and cut-outs move with the panel so they land in
+    /// the right place once the band is on. w / h become the cut size.
+    pub fn machined(&self, band: f64) -> Part {
+        let mut p = self.clone();
+        let n = self.outline.len();
+        if band <= 0.0 || n < 3 || (!self.edges.iter().any(|e| *e) && self.band_segs.is_empty()) {
+            return p;
+        }
+        let o = &self.outline;
+        let on = |a: [f64; 2], b: [f64; 2]| -> Option<usize> {
+            let eq = |u: f64, v: f64| (u - v).abs() < 0.01;
+            if eq(a[1], 0.0) && eq(b[1], 0.0) {
+                Some(0)
+            } else if eq(a[0], self.w) && eq(b[0], self.w) {
+                Some(1)
+            } else if eq(a[1], self.h) && eq(b[1], self.h) {
+                Some(2)
+            } else if eq(a[0], 0.0) && eq(b[0], 0.0) {
+                Some(3)
+            } else {
+                None
+            }
+        };
+        // inward offset of each segment i (outline[i] -> outline[i+1])
+        let area2: f64 = (0..n).map(|i| o[i][0] * o[(i + 1) % n][1] - o[(i + 1) % n][0] * o[i][1]).sum();
+        let ccw = area2 > 0.0;
+        let off: Vec<f64> = (0..n)
+            .map(|i| {
+                let (a, b) = (o[i], o[(i + 1) % n]);
+                let side = on(a, b).map(|e| self.edges[e]).unwrap_or(false);
+                if side || self.band_segs.contains(&i) {
+                    band
+                } else {
+                    0.0
+                }
+            })
+            .collect();
+        // offset line of segment i: point + direction
+        let line = |i: usize| {
+            let (a, b) = (o[i], o[(i + 1) % n]);
+            let (dx, dy) = (b[0] - a[0], b[1] - a[1]);
+            let l = (dx * dx + dy * dy).sqrt().max(1e-9);
+            let (ux, uy) = (dx / l, dy / l);
+            // inward normal: left of the direction for counter-clockwise outlines
+            let (nx, ny) = if ccw { (-uy, ux) } else { (uy, -ux) };
+            ([a[0] + nx * off[i], a[1] + ny * off[i]], [ux, uy])
+        };
+        let mut pts = vec![];
+        for i in 0..n {
+            let (p0, d0) = line((i + n - 1) % n);
+            let (p1, d1) = line(i);
+            let c = d0[0] * d1[1] - d0[1] * d1[0];
+            let v = if c.abs() < 1e-9 {
+                p1
+            } else {
+                let s = ((p1[0] - p0[0]) * d1[1] - (p1[1] - p0[1]) * d1[0]) / c;
+                [p0[0] + d0[0] * s, p0[1] + d0[1] * s]
+            };
+            pts.push(v);
+        }
+        let (mx, my) = pts.iter().fold((f64::MAX, f64::MAX), |a, v| (a.0.min(v[0]), a.1.min(v[1])));
+        let (xx, xy) = pts.iter().fold((f64::MIN, f64::MIN), |a, v| (a.0.max(v[0]), a.1.max(v[1])));
+        p.outline = pts.iter().map(|v| [r1(v[0] - mx), r1(v[1] - my)]).collect();
+        p.w = r1(xx - mx);
+        p.h = r1(xy - my);
+        for h in p.holes.iter_mut() {
+            h.x = r1(h.x - mx);
+            h.y = r1(h.y - my);
+        }
+        for k in p.pockets.iter_mut() {
+            k.x = r1(k.x - mx);
+            k.y = r1(k.y - my);
+        }
+        for c in p.cutouts.iter_mut() {
+            c.x = r1(c.x - mx);
+            c.y = r1(c.y - my);
+        }
+        p
     }
 
     fn mirror_x(&mut self) {
@@ -333,6 +448,31 @@ fn hinge_count(h: f64) -> usize {
     }
 }
 
+/// Heights of the corner-joint bores in a drawer box of height `bh`,
+/// clear of the bottom groove (10 mm up).
+fn box_joint_y(bh: f64) -> Vec<f64> {
+    if bh >= 90.0 {
+        vec![(bh * 0.35).max(36.0), bh - 25.0]
+    } else {
+        vec![(bh / 2.0 + 6.0).max(36.0)]
+    }
+}
+
+/// Hinge cup centres on a door of height `h` whose bottom edge is at `y0`
+/// in the cabinet, moved (at most 16 mm) so each hinge plate's two screws
+/// (cup centre ± 16) land on the 32 mm row of system holes that starts at
+/// `row0`: plate and shelf-pin holes then share bores instead of clashing.
+fn hinges_on_rows(h: f64, y0: f64, row0: f64) -> Vec<f64> {
+    hinge_positions(h)
+        .into_iter()
+        .map(|y| {
+            let plate = y0 + y - 16.0;
+            let snapped = row0 + ((plate - row0) / 32.0).round() * 32.0;
+            (snapped + 16.0 - y0).clamp(60.0, h - 60.0)
+        })
+        .collect()
+}
+
 fn hinge_positions(h: f64) -> Vec<f64> {
     let n = hinge_count(h);
     let (a, b) = (100.0, h - 100.0);
@@ -345,7 +485,7 @@ pub fn build(project: &Project) -> Build {
     for cab in &project.cabinets {
         build_cabinet(project, cab, &mut out);
     }
-    build_worktops(project, &mut out);
+    let joints = build_worktops(project, &mut out);
     if project.settings.plinth_runs {
         build_plinths(project, &mut out);
     }
@@ -356,6 +496,7 @@ pub fn build(project: &Project) -> Build {
         build_trim(project, &mut out, Trim::LightRail);
     }
     crate::lighting::plan(project, &mut out);
+    crate::install::plan(project, &mut out, &joints);
     out
 }
 
@@ -872,8 +1013,20 @@ fn shaker_pieces(p: Part, f: f64, g: f64, pm: &Material) -> Vec<Part> {
             fb(f, f, (ft - pt) / 2.0, w - 2.0 * f, h - 2.0 * f, pt),
         ),
     ];
+    // Visible frame edges are banded: each stile's outer edge and both ends,
+    // each rail's outer edge (inner edges take the panel groove).
+    out[0].edges = [true, false, true, true];
+    out[1].edges = [true, true, true, false];
+    out[2].edges = [true, false, false, false];
+    out[3].edges = [false, false, true, false];
     for hole in p.holes {
-        let (x, y) = (hole.x, hole.y);
+        let (x, mut y) = (hole.x, hole.y);
+        // A handle bore that would land in the thin floating panel goes to
+        // the middle of the top rail instead.
+        let in_panel = x >= f && x <= w - f && y >= f && y <= h - f;
+        if in_panel && hole.depth <= 0.0 && hole.dia <= 6.0 {
+            y = h - f / 2.0;
+        }
         let (k, nx, ny) = if x < f {
             (0, x, y)
         } else if x > w - f {
@@ -905,10 +1058,11 @@ fn to_local(ox: f64, oz: f64, deg: f64, wx: f64, wz: f64) -> (f64, f64) {
 /// One worktop per straight run of touching base cabinets, along each
 /// cabinet's own axis (any rotation). Where an L corner makes two
 /// worktops overlap, the later one is shortened to butt against the first.
-fn build_worktops(project: &Project, out: &mut Build) {
+fn build_worktops(project: &Project, out: &mut Build) -> Vec<String> {
     let s = &project.settings;
+    let mut joints: Vec<String> = vec![];
     if s.worktop_thickness <= 0.0 {
-        return;
+        return joints;
     }
     let tm = project.material("top");
     let r2 = |v: f64| (v * 2.0).round() / 2.0;
@@ -973,7 +1127,6 @@ fn build_worktops(project: &Project, out: &mut Build) {
         /// back edge (first cabinet's local z) and overall depth
         z0: f64,
         depth: f64,
-        band_back: bool,
     }
     let mut tops: Vec<Top> = runs
         .iter()
@@ -989,7 +1142,6 @@ fn build_worktops(project: &Project, out: &mut Build) {
                 len: a1 + last.width - a0,
                 z0: 0.0,
                 depth: r.iter().map(|(c, _)| c.depth).fold(0.0, f64::max) + s.worktop_overhang,
-                band_back: false,
             }
         })
         .collect();
@@ -1032,7 +1184,6 @@ fn build_worktops(project: &Project, out: &mut Build) {
             t.depth += dj;
             t.backs = backs;
             t.ids = format!("{}+{}", t.ids, ids);
-            t.band_back = true;
             merged[j] = true;
         }
     }
@@ -1047,7 +1198,6 @@ fn build_worktops(project: &Project, out: &mut Build) {
         if back > 0.0 {
             t.z0 = -back;
             t.depth += back;
-            t.band_back = true;
         }
     }
 
@@ -1114,6 +1264,10 @@ fn build_worktops(project: &Project, out: &mut Build) {
             let (a, b) = (t.start, t.start + t.len);
             let z_overlap = lz.1.min(t.z0 + t.depth) - lz.0.max(t.z0);
             let x_overlap = lx.1.min(b) - lx.0.max(a);
+            // touching or overlapping at a corner: a joint to bolt together
+            if z_overlap > -1.0 && x_overlap > -1.0 && (z_overlap > 0.5 || x_overlap > 0.5) {
+                joints.push(t.first.id.trim_end_matches("~b").to_string());
+            }
             if z_overlap <= 0.5 || x_overlap <= 0.5 {
                 continue;
             }
@@ -1176,7 +1330,8 @@ fn build_worktops(project: &Project, out: &mut Build) {
             (Some(c), true) => {
                 let [bx, by, bz] = box3d.pos;
                 let [len, bt, dep] = box3d.size;
-                let (uh, ut) = (s.upstand, s.upstand_thickness);
+                let um = project.material("upstand");
+                let (uh, ut) = (s.upstand, um.thickness);
                 let at_wall = |lx: f64, lz: f64| {
                     let (wx, wz) = to_world(c.x, c.z, c.rotation, lx, lz);
                     walls.iter().any(|w| {
@@ -1208,12 +1363,12 @@ fn build_worktops(project: &Project, out: &mut Build) {
                 cabinet: anchor.clone(),
                 name: name.into(),
                 role: Role::Worktop,
-                material: tm.id.clone(),
-                thickness: s.upstand_thickness,
+                material: "upstand".into(),
+                thickness: project.material("upstand").thickness,
                 w: r1(l),
                 h: r1(s.upstand),
                 grain_y: false,
-                edges: [false, false, true, false],
+                edges: [false; 4],
                 outline: rect(r1(l), r1(s.upstand)),
                 holes: vec![],
                 cutouts: vec![],
@@ -1236,7 +1391,8 @@ fn build_worktops(project: &Project, out: &mut Build) {
             w: r1(t.len),
             h: r1(t.depth),
             grain_y: false,
-            edges: [true, false, t.band_back, false],
+            // solid / laminated tops are finished, not edge-banded
+            edges: [false; 4],
             outline: rect(r1(t.len), r1(t.depth)),
             holes: vec![],
             cutouts,
@@ -1252,6 +1408,7 @@ fn build_worktops(project: &Project, out: &mut Build) {
             out.warnings.push(format!("Worktop over {} is {:.0} mm, longer than the {} blank", t.ids, t.len, tm.name));
         }
     }
+    joints
 }
 
 fn build_cabinet(project: &Project, cab: &Cabinet, out: &mut Build) {
@@ -1449,7 +1606,7 @@ fn build_lcorner(project: &Project, cab: &Cabinet, out: &mut Build) {
             Box3 { pos: [dd.0 * g / 2.0, toe + g / 2.0, d + dd.1 * g / 2.0], size: [fw, fh, ft] },
         );
         cx.out.parts[idx].rot = rot;
-        let hy = hinge_positions(fh);
+        let hy = hinges_on_rows(fh, toe + g / 2.0, toe + t + 64.0);
         for &y in &hy {
             cx.out.parts[idx].holes.push(Hole { x: r1(fw - s.hinge_cup_inset), y: r1(y), dia: 35.0, depth: 13.0, edge: None });
             let yw = toe + g / 2.0 + y;
@@ -1484,7 +1641,7 @@ fn build_lcorner(project: &Project, cab: &Cabinet, out: &mut Build) {
             [true; 4],
             Box3 { pos: [xb - ft, y0, d + g / 2.0], size: [ft, fh, wb] },
         );
-        let hy = hinge_positions(fh);
+        let hy = hinges_on_rows(fh, y0, toe + t + 64.0);
         let inset = s.hinge_cup_inset;
         for &y in &hy {
             // inside face up: A's left-side hinge on the drawing right, fold edge on the left;
@@ -1823,6 +1980,18 @@ fn build_carcass(project: &Project, cab: &Cabinet, out: &mut Build) {
                             Box3 { pos: [xs, box_lo, z0], size: [dt, bh, sl_len] },
                         );
                         cx.out.parts[idx].pockets.push(bg(sl_len));
+                        // corner joints: face bores near each end, above the bottom groove
+                        for x in [dt / 2.0, sl_len - dt / 2.0] {
+                            for &y in &box_joint_y(bh) {
+                                cx.out.parts[idx].holes.push(Hole {
+                                    x: r1(x),
+                                    y: r1(y),
+                                    dia: side_dia,
+                                    depth: side_depth.min(dt - 3.0),
+                                    edge: None,
+                                });
+                            }
+                        }
                     }
                     let iw2 = bw - 2.0 * dt;
                     for (k, zs) in [("f", d - dt), ("b", z0)] {
@@ -1838,6 +2007,12 @@ fn build_carcass(project: &Project, cab: &Cabinet, out: &mut Build) {
                             Box3 { pos: [x0 + dt, box_lo, zs], size: [iw2, bh, dt] },
                         );
                         cx.out.parts[idx].pockets.push(bg(iw2));
+                        for &y in &box_joint_y(bh) {
+                            for (e, x) in [(3u8, 0.0), (1u8, iw2)] {
+                                let depth = edge_depth.min(iw2 / 2.0 - 10.0);
+                                cx.out.parts[idx].holes.push(Hole { x: r1(x), y: r1(y), dia: edge_dia, depth, edge: Some(e) });
+                            }
+                        }
                     }
                     cx.part(
                         &format!("d{}bot", i + 1),
@@ -1908,7 +2083,7 @@ fn build_carcass(project: &Project, cab: &Cabinet, out: &mut Build) {
                     Box3 { pos: [bx0 + g / 2.0, zone_lo + g / 2.0, d], size: [bx1 - bx0 - g, fh, ft] },
                 );
             }
-            let hy = hinge_positions(fh);
+            let hy = hinges_on_rows(fh, zone_lo + g / 2.0, housing.map_or(toe + t, |(_, hi)| hi + t) + 64.0);
             for (n, (x0, fw, side)) in leaves.into_iter().enumerate() {
                 let idx = cx.part(
                     &format!("{}{}", dkey, n + 1),

@@ -212,3 +212,71 @@ mod tests {
         assert!(w.is_empty(), "{w:?}");
     }
 }
+
+/// Machining clashes inside each part: bores, pockets and edge bores that
+/// run into each other (overlapping in plan and in depth). Bores at the same
+/// centre are one bore; through bores may cross pockets.
+pub fn machining(build: &crate::parts::Build, warnings: &mut Vec<String>) {
+    // (kind, x0, y0, x1, y1, z0, z1, through) - z from face 1 down
+    for p in &build.parts {
+        let t = p.thickness;
+        let mut items: Vec<(&str, [f64; 4], [f64; 2], bool, (f64, f64))> = vec![];
+        for h in &p.holes {
+            let r = h.dia / 2.0;
+            match h.edge {
+                None => {
+                    let d = if h.depth <= 0.0 { t } else { h.depth.min(t) };
+                    items.push(("bore", [h.x - r, h.y - r, h.x + r, h.y + r], [0.0, d], h.depth <= 0.0, (h.x, h.y)));
+                }
+                Some(e) => {
+                    let b = match e {
+                        0 => [h.x - r, 0.0, h.x + r, h.depth],
+                        1 => [p.w - h.depth, h.y - r, p.w, h.y + r],
+                        2 => [h.x - r, p.h - h.depth, h.x + r, p.h],
+                        _ => [0.0, h.y - r, h.depth, h.y + r],
+                    };
+                    items.push(("edge bore", b, [t / 2.0 - r, t / 2.0 + r], false, (h.x, h.y)));
+                }
+            }
+        }
+        for k in &p.pockets {
+            let z = if k.face == 2 { [t - k.depth, t] } else { [0.0, k.depth] };
+            items.push(("groove", [k.x, k.y, k.x + k.w, k.y + k.h], z, false, (f64::NAN, f64::NAN)));
+        }
+        let mut found = 0;
+        'outer: for i in 0..items.len() {
+            for j in i + 1..items.len() {
+                let (a, b) = (&items[i], &items[j]);
+                if a.4 == b.4 && a.0 == b.0 {
+                    continue; // the same bore listed twice
+                }
+                if (a.3 && b.0 == "groove") || (b.3 && a.0 == "groove") {
+                    continue;
+                }
+                let ov = |lo0: f64, hi0: f64, lo1: f64, hi1: f64| hi0.min(hi1) - lo0.max(lo1) > 0.3;
+                if ov(a.1[0], a.1[2], b.1[0], b.1[2]) && ov(a.1[1], a.1[3], b.1[1], b.1[3]) && ov(a.2[0], a.2[1], b.2[0], b.2[1]) {
+                    // round bores: check the real distance between centres
+                    if a.0 == "bore" && b.0 == "bore" {
+                        let d = ((a.4 .0 - b.4 .0).powi(2) + (a.4 .1 - b.4 .1).powi(2)).sqrt();
+                        if d >= (a.1[2] - a.1[0]) / 2.0 + (b.1[2] - b.1[0]) / 2.0 - 0.3 {
+                            continue;
+                        }
+                    }
+                    warnings.push(format!(
+                        "{} {}: {} runs into {} near ({:.0}, {:.0})",
+                        p.id,
+                        p.name,
+                        a.0,
+                        b.0,
+                        a.1[0].max(b.1[0]),
+                        a.1[1].max(b.1[1])
+                    ));
+                    found += 1;
+                    if found >= 3 {
+                        break 'outer;
+                    }
+                }
+            }
+        }
+    }
+}

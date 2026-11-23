@@ -114,6 +114,18 @@ impl Pricing {
             90.0
         } else if n.contains("shelf pin") {
             0.5
+        } else if n.starts_with("wall cabinet hanger") {
+            25.0
+        } else if n.starts_with("anti-tip") || n.starts_with("wall fixing") {
+            6.0
+        } else if n.starts_with("worktop connector bolt") {
+            15.0
+        } else if n.starts_with("cabinet connector") || n.starts_with("worktop fixing") {
+            1.0
+        } else if n.starts_with("back panel screw") {
+            0.05
+        } else if n.starts_with("confirmat screw") || n.starts_with("dowel") {
+            0.4
         } else if n.starts_with("waste bin") {
             450.0
         } else if n.starts_with("larder") {
@@ -183,9 +195,9 @@ pub struct Settings {
     pub plinth_runs: bool,
     /// Cornice board height on top of upper-cabinet runs (0 = none).
     pub cornice: f64,
-    /// Worktop upstand height along walls (0 = none), and its thickness.
+    /// Worktop upstand height along walls (0 = none); cut from the
+    /// "upstand" material.
     pub upstand: f64,
-    pub upstand_thickness: f64,
     /// Light rail height under wall-cabinet runs (0 = none).
     pub light_rail: f64,
     pub led: crate::lighting::Led,
@@ -218,7 +230,6 @@ impl Default for Settings {
             plinth_runs: true,
             cornice: 0.0,
             upstand: 0.0,
-            upstand_thickness: 20.0,
             light_rail: 0.0,
             led: Default::default(),
             shaker_frame: 60.0,
@@ -619,6 +630,17 @@ pub fn default_materials() -> Vec<Material> {
             price: 1600.0,
             offcuts: vec![],
         },
+        Material {
+            id: "upstand".into(),
+            name: "Oak upstand 20".into(),
+            thickness: 20.0,
+            sheet_length: 4100.0,
+            sheet_width: 650.0,
+            grain: true,
+            color: "#9c7350".into(),
+            price: 900.0,
+            offcuts: vec![],
+        },
     ]
 }
 
@@ -737,6 +759,12 @@ impl Project {
         s.room_depth = 0.0;
         s.room_height = 0.0;
         self.room.orient();
+        // materials added in later versions
+        for m in default_materials() {
+            if !self.materials.iter().any(|x| x.id == m.id) {
+                self.materials.push(m);
+            }
+        }
     }
 
     pub fn material(&self, id: &str) -> Material {

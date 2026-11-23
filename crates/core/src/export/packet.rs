@@ -42,7 +42,8 @@ fn len_wid(project: &Project, p: &Part) -> (f64, f64) {
 }
 
 fn edges_text(p: &Part) -> String {
-    ["B", "R", "T", "L"].iter().zip(p.edges).filter(|(_, e)| *e).map(|(s, _)| *s).collect()
+    let sides: String = ["B", "R", "T", "L"].iter().zip(p.edges).filter(|(_, e)| *e).map(|(s, _)| *s).collect();
+    format!("{sides} {}", p.band_segs_text()).trim().to_string()
 }
 
 /// Small outline of a part: banded edges thick, bores as dots.
@@ -66,6 +67,18 @@ fn mini(p: &Part, w: f64, h: f64) -> String {
                 y(*d)
             );
         }
+    }
+    let n_o = p.outline.len();
+    for &i in p.band_segs.iter().filter(|&&i| i < n_o) {
+        let (a, b) = (p.outline[i], p.outline[(i + 1) % n_o]);
+        let _ = write!(
+            o,
+            r##"<line x1="{:.2}" y1="{:.2}" x2="{:.2}" y2="{:.2}" stroke="#000" stroke-width="1.1"/>"##,
+            x(a[0]),
+            y(a[1]),
+            x(b[0]),
+            y(b[1])
+        );
     }
     for k in &p.pockets {
         let _ = write!(
@@ -112,6 +125,7 @@ svg{max-width:100%;height:auto}
 /// shop drawings, hardware. `date` is printed on the cover when given.
 pub fn packet_html(project: &Project, report: &Report, date: Option<&str>) -> String {
     let b = &report.build;
+    let cut = super::machined_parts(project, b);
     let sheet = sheet_of(report);
     let s = &report.summary;
     let mut o = String::new();
@@ -187,6 +201,21 @@ pub fn packet_html(project: &Project, report: &Report, date: Option<&str>) -> St
         }
     }
     let code = |n: &str| esc(project.pricing.codes.get(n).map(|s| s.as_str()).unwrap_or(""));
+    let bands = super::edgeband(project, b);
+    if !bands.is_empty() {
+        let _ =
+            write!(o, "<h3>Edge band</h3><table><tr><th>For</th><th class=n>Thickness</th><th class=n>Metres</th><th class=c>✓</th></tr>");
+        for (m, _, l) in &bands {
+            let _ = write!(
+                o,
+                "<tr><td>{}</td><td class=n>{}</td><td class=n>{:.1}</td><td class=c><span class=box></span></td></tr>",
+                esc(m),
+                n(project.settings.edge_band),
+                l
+            );
+        }
+        let _ = write!(o, "</table>");
+    }
     let _ = write!(o, "<h3>Hardware</h3><table><tr><th>Item</th><th>Code</th><th class=n>Qty</th><th class=c>✓</th></tr>");
     for (name, q) in &tot {
         let _ = write!(
@@ -198,6 +227,35 @@ pub fn packet_html(project: &Project, report: &Report, date: Option<&str>) -> St
         );
     }
     let _ = write!(o, "</table></section>");
+
+    // ---------- work off the CNC ----------
+    let shaker = b
+        .parts
+        .iter()
+        .filter(|p| {
+            p.name.ends_with(" stile L") || p.name.ends_with(" stile R") || p.name.ends_with(" rail B") || p.name.ends_with(" rail T")
+        })
+        .count();
+    let glass: u32 = b.hardware.iter().filter(|h| h.name.starts_with("Glass ")).map(|h| h.qty).sum();
+    if shaker > 0 {
+        let st = &project.settings;
+        let _ = write!(o, "<section><h2>Frame fronts</h2><table><tr><th>Operation</th><th class=n>Pieces</th><th class=c>✓</th></tr>");
+        let _ = write!(
+            o,
+            "<tr><td>Groove {} deep along the inner edge of every stile and rail for the panel (spindle moulder or router table); tenons {} long on the rail ends</td><td class=n>{}</td><td class=c><span class=box></span></td></tr>",
+            n(st.shaker_groove),
+            n(st.shaker_groove),
+            shaker
+        );
+        if glass > 0 {
+            let _ = write!(
+                o,
+                "<tr><td>Glass doors: rebate the back of the frame instead of grooving, glass held with beads</td><td class=n>{}</td><td class=c><span class=box></span></td></tr>",
+                glass
+            );
+        }
+        let _ = write!(o, "</table></section>");
+    }
 
     // ---------- lighting ----------
     if !b.circuits.is_empty() {
@@ -309,7 +367,7 @@ pub fn packet_html(project: &Project, report: &Report, date: Option<&str>) -> St
             esc(&m.name),
             sh.placements.len(),
             sh.yield_pct,
-            sheet_svg(project, sh, &b.parts)
+            sheet_svg(project, sh, &cut)
         );
     }
 
@@ -402,6 +460,7 @@ pub fn labels_html(project: &Project, report: &Report) -> String {
                     (!edges_text(p).is_empty()).then(|| format!("Edges {}", edges_text(p))),
                     (!p.holes.is_empty()).then(|| format!("{} bores", p.holes.len())),
                     (!p.pockets.is_empty()).then(|| format!("{} grooves", p.pockets.len())),
+                    p.face2().then(|| "<b>2nd face</b>".to_string()),
                 ]
                 .into_iter()
                 .flatten()

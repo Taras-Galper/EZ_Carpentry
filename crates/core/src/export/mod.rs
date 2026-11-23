@@ -20,6 +20,35 @@ fn csv_cell(s: &str) -> String {
     }
 }
 
+/// Edge band to order: metres per panel material (the band matches the
+/// panel), with 10% for trimming and waste.
+pub fn edgeband(project: &Project, build: &Build) -> Vec<(String, f64, f64)> {
+    let mut rows: Vec<(String, f64, f64)> = vec![];
+    for p in &build.parts {
+        let l = p.band_length() / 1000.0;
+        if l <= 0.0 {
+            continue;
+        }
+        let m = project.material(&p.material);
+        match rows.iter_mut().find(|r| r.0 == m.name) {
+            Some(r) => r.2 += l,
+            None => rows.push((m.name.clone(), m.thickness, l)),
+        }
+    }
+    for r in rows.iter_mut() {
+        r.2 = (r.2 * 1.1 * 10.0).ceil() / 10.0;
+    }
+    rows
+}
+
+pub fn edgeband_csv(project: &Project, build: &Build) -> String {
+    let mut o = String::from("Panel material,Panel thickness,Band thickness,Metres (incl. 10%)\n");
+    for (m, t, l) in edgeband(project, build) {
+        let _ = writeln!(o, "{},{},{},{:.1}", csv_cell(&m), t, project.settings.edge_band, l);
+    }
+    o
+}
+
 /// One row per unique part (same cabinet, name, material, size, banding).
 pub fn cutlist_csv(project: &Project, build: &Build) -> String {
     let band = project.settings.edge_band;
@@ -47,6 +76,9 @@ pub fn cutlist_csv(project: &Project, build: &Build) -> String {
             x(w2),
             if m.grain { "Y".into() } else { String::new() },
             p.holes.len().to_string(),
+            p.shape_label().to_string(),
+            p.band_segs_text(),
+            if p.face2() { "Y".into() } else { String::new() },
         ];
         if let Some(r) = rows.iter_mut().find(|r| r.0 == key) {
             r.1 += 1;
@@ -54,13 +86,28 @@ pub fn cutlist_csv(project: &Project, build: &Build) -> String {
             rows.push((key, 1));
         }
     }
-    let mut o = String::from("Cabinet,Part,Material,Thickness,Length,Width,Qty,L1,L2,W1,W2,Grain,Holes\n");
+    let mut o = String::from("Cabinet,Part,Material,Thickness,Length,Width,Qty,L1,L2,W1,W2,Grain,Holes,Shape,Shaped band,Face 2\n");
     for (k, q) in rows {
         let cells: Vec<String> = k.iter().map(|c| csv_cell(c)).collect();
         let _ = writeln!(
             o,
-            "{},{},{},{},{},{},{},{},{},{},{},{},{}",
-            cells[0], cells[1], cells[2], cells[3], cells[4], cells[5], q, cells[6], cells[7], cells[8], cells[9], cells[10], cells[11]
+            "{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
+            cells[0],
+            cells[1],
+            cells[2],
+            cells[3],
+            cells[4],
+            cells[5],
+            q,
+            cells[6],
+            cells[7],
+            cells[8],
+            cells[9],
+            cells[10],
+            cells[11],
+            cells[12],
+            cells[13],
+            cells[14]
         );
     }
     o
@@ -222,18 +269,23 @@ pub fn labels_csv(project: &Project, report: &Report) -> String {
             at[pl.part] = Some((si + 1, pl.x, pl.y, pl.rotated));
         }
     }
-    let mut o = String::from("Label,Cabinet,Cabinet name,Part,Material,Thickness,W,H,Edges,Bores,Cut-outs,Sheet,Sheet X,Sheet Y,Rotated\n");
+    let mut o = String::from(
+        "Label,Cabinet,Cabinet name,Part,Material,Thickness,W,H,Edges,Bores,Cut-outs,Sheet,Sheet X,Sheet Y,Rotated,Shape,Face 2\n",
+    );
     for p in &b.parts {
         let m = project.material(&p.material);
         let cname = project.cabinets.iter().find(|c| c.id == p.cabinet).map(|c| c.name.clone()).unwrap_or_default();
-        let edges: String = ["B", "R", "T", "L"].iter().zip(p.edges).filter(|(_, e)| *e).map(|(s, _)| *s).collect();
+        let mut edges: String = ["B", "R", "T", "L"].iter().zip(p.edges).filter(|(_, e)| *e).map(|(s, _)| *s).collect();
+        if !p.band_segs.is_empty() {
+            edges = format!("{edges} {}", p.band_segs_text()).trim().to_string();
+        }
         let (sheet, sx, sy, rot) = match at[p.id_index(b)] {
             Some((n, x, y, r)) => (n.to_string(), format!("{x:.1}"), format!("{y:.1}"), if r { "Y" } else { "" }.to_string()),
             None => ("OVERSIZE".into(), String::new(), String::new(), String::new()),
         };
         let _ = writeln!(
             o,
-            "{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
+            "{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
             csv_cell(&p.id),
             csv_cell(&p.cabinet),
             csv_cell(&cname),
@@ -248,7 +300,9 @@ pub fn labels_csv(project: &Project, report: &Report) -> String {
             sheet,
             sx,
             sy,
-            rot
+            rot,
+            p.shape_label(),
+            if p.face2() { "Y" } else { "" }
         );
     }
     o
@@ -333,6 +387,7 @@ pub fn files_dated(project: &Project, report: &Report, date: Option<&str>) -> Ve
         ("project.json".into(), serde_json::to_vec_pretty(project).unwrap_or_default()),
         ("cutlist.csv".into(), cutlist_csv(project, b).into_bytes()),
         ("hardware.csv".into(), hardware_csv(project, b).into_bytes()),
+        ("edgeband.csv".into(), edgeband_csv(project, b).into_bytes()),
         ("labels.csv".into(), labels_csv(project, report).into_bytes()),
         ("shop_packet.html".into(), packet::packet_html(project, report, date).into_bytes()),
         ("labels.html".into(), packet::labels_html(project, report).into_bytes()),
@@ -340,7 +395,9 @@ pub fn files_dated(project: &Project, report: &Report, date: Option<&str>) -> Ve
         ("quote.html".into(), quote::quote_html(project, &quote::quote(project, report), date, &[]).into_bytes()),
         ("model.obj".into(), obj(project, b).into_bytes()),
     ];
-    for p in &b.parts {
+    // machining files use the parts as cut (banded edges moved in)
+    let cut = machined_parts(project, b);
+    for p in &cut {
         files.push((format!("parts/{}.dxf", safe(&p.id)), dxf::part_dxf(p).into_bytes()));
     }
     for c in project.cabinets.iter().filter(|c| c.kind.is_carcass()) {
@@ -354,8 +411,13 @@ pub fn files_dated(project: &Project, report: &Report, date: Option<&str>) -> Ve
             files.push((format!("drawings/wall-{}.svg", wi + 1), svg.into_bytes()));
         }
     }
-    write_sheets(project, &report.nesting, &b.parts, &mut files);
+    write_sheets(project, &report.nesting, &cut, &mut files);
     files
+}
+
+/// Every part as it is cut, for DXF / G-code / sheet layouts (see `Part::machined`).
+pub fn machined_parts(project: &Project, build: &Build) -> Vec<Part> {
+    build.parts.iter().map(|p| p.machined(project.settings.edge_band)).collect()
 }
 
 fn write_sheets(project: &Project, n: &Nesting, parts: &[Part], files: &mut Vec<(String, Vec<u8>)>) {

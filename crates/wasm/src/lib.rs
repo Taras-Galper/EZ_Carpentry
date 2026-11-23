@@ -61,7 +61,8 @@ pub fn packet_html(json: &str, date: Option<String>) -> Result<String, JsError> 
 pub fn export_one(json: &str, kind: &str, index: usize) -> Result<String, JsError> {
     let p = project(json)?;
     let r = cw::compute(&p);
-    let parts = &r.build.parts;
+    let cut = cw::export::machined_parts(&p, &r.build);
+    let parts = &cut;
     let sheet = || r.nesting.sheets.get(index).ok_or_else(|| JsError::new("no such sheet"));
     Ok(match kind {
         "cutlist" => cw::export::cutlist_csv(&p, &r.build),
