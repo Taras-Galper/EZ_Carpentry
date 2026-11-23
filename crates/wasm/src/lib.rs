@@ -35,6 +35,20 @@ pub fn quote_html(json: &str, date: Option<String>, images: Vec<String>) -> Resu
     Ok(cw::export::quote::quote_html(&p, &cw::export::quote::quote(&p, &r), date.as_deref(), &images))
 }
 
+/// Accessories that fit cabinet `index`: JSON [{id, label}].
+#[wasm_bindgen]
+pub fn accessories(json: &str, index: usize) -> Result<String, JsError> {
+    let p = project(json)?;
+    let c = p.cabinets.get(index).ok_or_else(|| JsError::new("no such cabinet"))?;
+    let ids = cw::accessories::fitting(c);
+    let list: Vec<serde_json::Value> = cw::accessories::CATALOGUE
+        .iter()
+        .filter(|a| ids.contains(&a.id) || c.accessories.iter().any(|x| x == a.id))
+        .map(|a| serde_json::json!({ "id": a.id, "label": a.label }))
+        .collect();
+    Ok(serde_json::to_string(&list).unwrap_or_default())
+}
+
 #[wasm_bindgen]
 pub fn packet_html(json: &str, date: Option<String>) -> Result<String, JsError> {
     let p = project(json)?;

@@ -601,6 +601,7 @@ function renderProps() {
         cut ? [field("Width (0 = std)", c, "cutout_width"), field("Depth (0 = std)", c, "cutout_depth"),
           field("Corner radius", c, "cutout_radius")] : null),
     ] : null,
+    accessoryChips(c),
     c.kind !== "appliance" ? h("h3", {}, "Materials") : null,
     carcass ? [field("Carcass", c, "carcass_material", "select", mats), field("Back", c, "back_material", "select", mats)] : null,
     c.kind !== "appliance" ? field("Fronts", c, "front_material", "select", mats) : null,
@@ -617,6 +618,17 @@ function offcutField(m) {
     m.offcuts = list; recompute();
   } });
   return h("label", {}, h("span", {}, "Offcuts in stock"), input);
+}
+// Fittings that suit this cabinet, as toggles.
+function accessoryChips(c) {
+  let list = [];
+  try { list = JSON.parse(cw.accessories(JSON.stringify(project), project.cabinets.indexOf(c))); } catch { return null; }
+  if (!list.length) return null;
+  const on = new Set(c.accessories || []);
+  return [h("h3", {}, "Fittings"), h("div", { class: "chips" }, list.map((a) => h("button", { class: on.has(a.id) ? "on" : "", onclick: () => {
+    c.accessories = on.has(a.id) ? c.accessories.filter((x) => x !== a.id) : [...(c.accessories || []), a.id];
+    recompute();
+  } }, a.label)))];
 }
 function toggleSel(id) {
   if (id === selected) {

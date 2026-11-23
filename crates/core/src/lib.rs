@@ -2,6 +2,7 @@
 //!
 //! `Project` (JSON) -> `Report` (parts, hardware, nested sheets) -> exports.
 
+pub mod accessories;
 pub mod checks;
 pub mod export;
 pub mod import_dxf;
@@ -1259,5 +1260,30 @@ mod tests {
         // the groove reaches the second-face program
         let files = export::files(&p, &r);
         assert!(files.iter().any(|(n, _)| n.starts_with("nc/face2/") && n.contains("w1-bottom")));
+    }
+
+    #[test]
+    fn accessories_listed_and_checked() {
+        let mut p = sample_kitchen();
+        for c in p.cabinets.iter_mut() {
+            match c.id.as_str() {
+                "b5" => c.accessories = vec!["cutlery".into()],
+                "b2" => c.accessories = vec!["bin".into()],
+                "b3" => c.accessories = vec!["blind_pullout".into()],
+                "w1" => c.accessories = vec!["plate_rack".into(), "larder".into()],
+                _ => {}
+            }
+        }
+        let r = compute(&p);
+        let hw = |cab: &str| r.build.hardware.iter().filter(|h| h.cabinet == cab).map(|h| h.name.clone()).collect::<Vec<_>>();
+        assert!(hw("b5").iter().any(|n| n == "Cutlery insert 550"), "{:?}", hw("b5"));
+        assert!(hw("b2").iter().any(|n| n == "Waste bin pull-out 750"));
+        assert!(hw("b3").iter().any(|n| n.starts_with("Blind corner pull-out")));
+        assert!(hw("w1").iter().any(|n| n == "Plate rack 550"));
+        // a larder pull-out does not go in a wall cabinet: warned, not listed
+        assert!(!hw("w1").iter().any(|n| n.starts_with("Larder")));
+        assert_eq!(r.build.warnings.len(), 1, "{:?}", r.build.warnings);
+        assert!(r.build.warnings[0].contains("larder pull-out is for tall cabinets"));
+        assert!(accessories::fitting(&p.cabinets.iter().find(|c| c.id == "t1").unwrap().clone()).contains(&"larder"));
     }
 }

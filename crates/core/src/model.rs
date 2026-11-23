@@ -114,6 +114,18 @@ impl Pricing {
             90.0
         } else if n.contains("shelf pin") {
             0.5
+        } else if n.starts_with("waste bin") {
+            450.0
+        } else if n.starts_with("larder") {
+            1400.0
+        } else if n.starts_with("corner carousel") || n.starts_with("blind corner pull-out") {
+            900.0
+        } else if n.starts_with("cutlery") {
+            120.0
+        } else if n.starts_with("bottle") || n.starts_with("trouser") {
+            350.0
+        } else if n.starts_with("plate rack") || n.starts_with("drying rack") {
+            180.0
         } else if n.starts_with("led strip") {
             30.0
         } else if n.starts_with("led driver") {
@@ -480,6 +492,8 @@ pub struct Cabinet {
     /// Shaker centre panel.
     pub panel_material: String,
     pub handles: bool,
+    /// Bought-in fittings by catalogue id (see `accessories::CATALOGUE`).
+    pub accessories: Vec<String>,
 }
 
 impl Default for Cabinet {
@@ -531,6 +545,7 @@ impl Default for Cabinet {
             drawer_material: "drawer".into(),
             panel_material: "panel".into(),
             handles: true,
+            accessories: vec![],
         }
     }
 }

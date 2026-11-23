@@ -1209,6 +1209,7 @@ fn build_cabinet(project: &Project, cab: &Cabinet, out: &mut Build) {
     }
     end_panels(project, cab, out);
     crate::lighting::cabinet(project, cab, out);
+    crate::accessories::cabinet(project, cab, out);
 }
 
 /// Map local (x, z) points to an L panel's drawing frame (seen from
