@@ -130,7 +130,7 @@ Every compute also checks each part for machining clashes — bores, grooves and
 
 The machining files (part and sheet DXFs, sheet layouts, G-code) use each part as it is cut: banded edges — straight or shaped — are moved in by the edge band thickness and every bore, groove and cut-out moves with the panel, so sizes and positions are right once the band is on. The cut list and labels give the shape (L, 5-sided, notched), shaped banded edges, and mark parts with second-face work. Worktops and upstands are not banded. Frame-front work done off the CNC (grooves and tenons, glass rebates) is listed in the shop packet, with an edge band order by panel material (`edgeband.csv`, +10%).
 
-Fixings go on the hardware list: joint fasteners (one confirmat screw or dowel per joint bore, carcasses and drawer boxes), cabinet connector screws between neighbours, wall hangers, wall fixing and anti-tip brackets, worktop fixing screws, worktop connector bolts at corner joints, and back panel screws.
+Fixings go on the hardware list: joint fasteners (one confirmat screw or dowel per joint bore, carcasses and drawer boxes), cabinet connector screws between neighbours, wall hangers, wall fixing and anti-tip brackets, worktop fixing screws, worktop connector bolts at corner joints, and back panel screws. Worktop corner joints get their bolt recesses routed underneath (second face): three Ø35 holes 75 mm each side of the joint with a 15 mm slot to it, lined up across the joint.
 
 ## Construction rules
 

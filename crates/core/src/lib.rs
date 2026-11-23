@@ -1504,4 +1504,49 @@ mod tests {
             assert_eq!(n as usize, bores);
         }
     }
+
+    #[test]
+    fn worktop_joint_bolt_recesses() {
+        let p = sample_kitchen();
+        let r = compute(&p);
+        assert!(r.build.warnings.is_empty(), "{:?}", r.build.warnings);
+        let get = |id: &str| r.build.parts.iter().find(|q| q.id == id).unwrap();
+        let (back, leg) = (get("d1-worktop"), get("b4-worktop"));
+        // three holes + three slots on each side of the joint, on the underside
+        for t in [back, leg] {
+            assert_eq!(t.pockets.len(), 6, "{}", t.id);
+            assert!(t.pockets.iter().all(|k| k.face == 2 && k.depth < t.thickness));
+            assert!(
+                t.pockets.iter().all(|k| k.x >= -0.01 && k.y >= -0.01 && k.x + k.w <= t.w + 0.01 && k.y + k.h <= t.h + 0.01),
+                "{:?}",
+                t.pockets
+            );
+        }
+        // the leg's slots run out to its start (the joint); the back run's to its front edge
+        assert!(leg.pockets.iter().filter(|k| k.h == 15.0).all(|k| k.x == 0.0));
+        assert!(back.pockets.iter().filter(|k| k.w == 15.0).all(|k| k.y == 0.0));
+        // holes face each other across the joint: same three bolt lines
+        let holes = |t: &parts::Part| t.pockets.iter().filter(|k| k.r > 0.0).count();
+        assert_eq!((holes(back), holes(leg)), (3, 3));
+        // in the room, each hole on one side has its partner 150 mm away on the other
+        let world = |t: &parts::Part| -> Vec<(f64, f64)> {
+            let c = p.cabinets.iter().find(|c| c.id == t.cabinet).unwrap();
+            t.pockets
+                .iter()
+                .filter(|k| k.r > 0.0)
+                .map(|k| {
+                    let (xd, yd) = (k.x + 17.5, k.y + 17.5);
+                    let (lx, lz) = (t.box3d.pos[0] + xd, t.box3d.pos[2] + t.box3d.size[2] - yd);
+                    parts::to_world(c.x, c.z, c.rotation, lx, lz)
+                })
+                .collect()
+        };
+        let (a, b) = (world(back), world(leg));
+        for pa in &a {
+            let near = b.iter().map(|pb| ((pa.0 - pb.0).powi(2) + (pa.1 - pb.1).powi(2)).sqrt()).fold(f64::MAX, f64::min);
+            assert!((near - 150.0).abs() < 0.5, "{near}");
+        }
+        let files = export::files(&p, &r);
+        assert!(files.iter().any(|(n, _)| n == "nc/face2/d1-worktop.nc"));
+    }
 }

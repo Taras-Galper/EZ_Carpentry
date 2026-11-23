@@ -1242,6 +1242,8 @@ fn build_worktops(project: &Project, out: &mut Build) -> Vec<String> {
     }
 
     // Trim overlaps at corners: earlier (longer-established) worktop wins.
+    // Joints: (worktop i, worktop j butting into it, at j's start?).
+    let mut butt: Vec<(usize, usize, bool)> = vec![];
     for j in 1..tops.len() {
         for i in 0..j {
             let (fi, fj) = (tops[i].first, tops[j].first);
@@ -1267,6 +1269,7 @@ fn build_worktops(project: &Project, out: &mut Build) -> Vec<String> {
             // touching or overlapping at a corner: a joint to bolt together
             if z_overlap > -1.0 && x_overlap > -1.0 && (z_overlap > 0.5 || x_overlap > 0.5) {
                 joints.push(t.first.id.trim_end_matches("~b").to_string());
+                butt.push((i, j, (lx.0 + lx.1) / 2.0 < (a + b) / 2.0));
             }
             if z_overlap <= 0.5 || x_overlap <= 0.5 {
                 continue;
@@ -1281,7 +1284,43 @@ fn build_worktops(project: &Project, out: &mut Build) -> Vec<String> {
         }
     }
 
-    for t in tops {
+    // Bolt recesses under each corner joint: three bolts across the joint,
+    // each a Ø35 x 20 hole 75 mm from the joint with a 15 mm slot to it.
+    let th = s.worktop_thickness;
+    let (hole_d, slot_d) = ((th * 0.55).min(20.0), (th * 0.4).min(15.0));
+    let mut recess: Vec<Vec<Pocket>> = vec![vec![]; tops.len()];
+    for &(i, j, at_start) in &butt {
+        let (ti, tj) = (&tops[i], &tops[j]);
+        if ti.len < 50.0 || tj.len < 50.0 {
+            continue;
+        }
+        let xe = if at_start { tj.start } else { tj.start + tj.len }; // j's end at the joint
+        let inward = if at_start { 1.0 } else { -1.0 };
+        let (fi, fj) = (ti.first, tj.first);
+        let front_i = ti.z0 + ti.depth;
+        for k in [0.2, 0.5, 0.8] {
+            let z = tj.z0 + tj.depth * k;
+            let front_j = tj.z0 + tj.depth;
+            // on j: hole 75 in from its end, slot out to the end
+            let xh = xe + inward * 75.0;
+            let (yd, xd) = (front_j - z, xh - tj.start);
+            recess[j].push(Pocket { x: r1(xd - 17.5), y: r1(yd - 17.5), w: 35.0, h: 35.0, depth: hole_d, r: 17.5, face: 2 });
+            let (sx0, sx1) = if at_start { (0.0, xd) } else { (xd, tj.len) };
+            recess[j].push(Pocket { x: r1(sx0), y: r1(yd - 7.5), w: r1(sx1 - sx0), h: 15.0, depth: slot_d, r: 0.0, face: 2 });
+            // on i: the bolt line carries on 75 mm past the joint into i
+            let (wx, wz) = to_world(fj.x, fj.z, fj.rotation, xe - inward * 75.0, z);
+            let (xi, zi) = to_local(fi.x, fi.z, fi.rotation, wx, wz);
+            let (xd, yd) = (xi - ti.start, front_i - zi);
+            if xd < 20.0 || xd > ti.len - 20.0 || yd < 20.0 {
+                continue;
+            }
+            recess[i].push(Pocket { x: r1(xd - 17.5), y: r1(yd - 17.5), w: 35.0, h: 35.0, depth: hole_d, r: 17.5, face: 2 });
+            recess[i].push(Pocket { x: r1(xd - 7.5), y: 0.0, w: 15.0, h: r1(yd), depth: slot_d, r: 0.0, face: 2 });
+        }
+    }
+
+    for (ti, t) in tops.into_iter().enumerate() {
+        let joint_pockets = std::mem::take(&mut recess[ti]);
         if t.len < 50.0 {
             continue;
         }
@@ -1396,7 +1435,7 @@ fn build_worktops(project: &Project, out: &mut Build) -> Vec<String> {
             outline: rect(r1(t.len), r1(t.depth)),
             holes: vec![],
             cutouts,
-            pockets: vec![],
+            pockets: joint_pockets,
             box3d,
             more3d: vec![],
             band_segs: vec![],

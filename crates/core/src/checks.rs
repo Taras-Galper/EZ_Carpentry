@@ -250,8 +250,8 @@ pub fn machining(build: &crate::parts::Build, warnings: &mut Vec<String>) {
                 if a.4 == b.4 && a.0 == b.0 {
                     continue; // the same bore listed twice
                 }
-                if (a.3 && b.0 == "groove") || (b.3 && a.0 == "groove") {
-                    continue;
+                if (a.3 && b.0 == "groove") || (b.3 && a.0 == "groove") || (a.0 == "groove" && b.0 == "groove") {
+                    continue; // through bores may cross grooves; grooves may run into each other
                 }
                 let ov = |lo0: f64, hi0: f64, lo1: f64, hi1: f64| hi0.min(hi1) - lo0.max(lo1) > 0.3;
                 if ov(a.1[0], a.1[2], b.1[0], b.1[2]) && ov(a.1[1], a.1[3], b.1[1], b.1[3]) && ov(a.2[0], a.2[1], b.2[0], b.2[1]) {
