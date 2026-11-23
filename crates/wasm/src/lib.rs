@@ -35,6 +35,21 @@ pub fn quote_html(json: &str, date: Option<String>, images: Vec<String>) -> Resu
     Ok(cw::export::quote::quote_html(&p, &cw::export::quote::quote(&p, &r), date.as_deref(), &images))
 }
 
+/// Kitchen layout from wall `wall`: kind "straight" | "l" | "u". Returns
+/// the project with the cabinets added.
+#[wasm_bindgen]
+pub fn layout(json: &str, kind: &str, wall: usize) -> Result<String, JsError> {
+    let mut p = project(json)?;
+    let k = match kind {
+        "straight" => cw::room::Layout::Straight,
+        "l" => cw::room::Layout::L,
+        "u" => cw::room::Layout::U,
+        _ => return Err(JsError::new("layout must be straight, l or u")),
+    };
+    p.cabinets = cw::room::layout(&p, k, wall).map_err(|e| JsError::new(&e))?;
+    Ok(serde_json::to_string(&p).unwrap_or_default())
+}
+
 /// Accessories that fit cabinet `index`: JSON [{id, label}].
 #[wasm_bindgen]
 pub fn accessories(json: &str, index: usize) -> Result<String, JsError> {

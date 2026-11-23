@@ -561,3 +561,166 @@ mod tests {
         }
     }
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Layout {
+    /// One wall.
+    Straight,
+    /// Two walls with an L corner cabinet where they meet.
+    L,
+    /// Three walls, two corners.
+    U,
+}
+
+/// A complete kitchen from `wall` on (and the next one or two walls, going
+/// round the room): L corner cabinets (base and wall) in the inside corners,
+/// every wall filled with base and wall cabinets, a sink base under a
+/// window (or mid-way along the first wall) with the dishwasher beside it,
+/// and a hob base as far from the sink as the layout allows. Cabinets
+/// already in the project are kept and worked around.
+pub fn layout(project: &Project, kind: Layout, wall: usize) -> Result<Vec<Cabinet>, String> {
+    let n = project.room.walls.len();
+    if n < 3 {
+        return Err("draw the room first".into());
+    }
+    let walls: Vec<usize> = (0..match kind {
+        Layout::Straight => 1,
+        Layout::L => 2,
+        Layout::U => 3,
+    })
+        .map(|k| (wall + k) % n)
+        .collect();
+    let style = project.cabinets.first().map(|c| c.door_style).unwrap_or(DoorStyle::Shaker);
+    let mut p = project.clone();
+    // corners first
+    for pair in walls.windows(2) {
+        let (a, b) = (p.room.wall(pair[0]).ok_or("no such wall")?, p.room.wall(pair[1]).ok_or("no such wall")?);
+        if b.dir[0] * a.normal[0] + b.dir[1] * a.normal[1] < 0.98 {
+            return Err(format!("walls {} and {} do not meet in an inside right angle", pair[0] + 1, pair[1] + 1));
+        }
+        for (prefix, w, d, h, elev) in [("b", 1000.0, BASE_DEPTH, BASE_HEIGHT, 0.0), ("w", 600.0, WALL_DEPTH, WALL_HEIGHT, WALL_ELEVATION)]
+        {
+            let wall_unit = prefix == "w";
+            if a.len < w + 300.0 || b.len < w + 300.0 {
+                continue;
+            }
+            // only where the corner is clear on both walls (tall units, earlier cabinets, openings)
+            let (lo, hi) = (elev, elev + h + if wall_unit { 0.0 } else { 40.0 });
+            let clear = |wi: usize, wl: &Wall, t0: f64, t1: f64| {
+                free(wl.len, blocked(&p, wi, wl, lo, hi, d)).iter().any(|(s, e)| *s <= t0 + 0.5 && *e >= t1 - 0.5)
+            };
+            if !clear(pair[0], &a, a.len - w, a.len) || !clear(pair[1], &b, 0.0, w) {
+                continue;
+            }
+            let (x, z) = a.point(a.len - w, 0.0);
+            let id = next_id(&p, &[], prefix);
+            p.cabinets.push(Cabinet {
+                id,
+                name: if wall_unit { "Wall L corner".into() } else { "L corner".into() },
+                kind: if wall_unit { CabinetKind::Wall } else { CabinetKind::Base },
+                corner: Corner::L,
+                width: w,
+                width2: w,
+                depth: d,
+                height: h,
+                elevation: elev,
+                x: (x * 10.0).round() / 10.0,
+                z: (z * 10.0).round() / 10.0,
+                rotation: (a.rotation * 1000.0).round() / 1000.0,
+                toe_kick_height: if wall_unit { 0.0 } else { 100.0 },
+                shelves: if wall_unit { 2 } else { 1 },
+                door_style: style,
+                ..Cabinet::default()
+            });
+        }
+    }
+    // Sink (under a window on these walls, else mid-way along the first),
+    // dishwasher beside it, hob on another wall (or the other end): placed
+    // before filling so the fill works round them.
+    let window = p.room.openings.iter().find(|o| o.kind == OpeningKind::Window && walls.contains(&o.wall)).cloned();
+    let sink_wall = window.as_ref().map(|o| o.wall).unwrap_or(walls[0]);
+    let target =
+        window.as_ref().map(|o| o.offset + o.width / 2.0).unwrap_or_else(|| p.room.wall(sink_wall).map(|w| w.len / 2.0).unwrap_or(0.0));
+    let base_spans = |p: &Project, wi: usize| -> Vec<(f64, f64)> {
+        let w = p.room.wall(wi).unwrap();
+        free(w.len, blocked(p, wi, &w, 0.0, BASE_HEIGHT + 40.0, BASE_DEPTH))
+    };
+    let place = |p: &mut Project, wi: usize, t: f64, width: f64, kind: CabinetKind, name: &str| {
+        let w = p.room.wall(wi).unwrap();
+        let (x, z) = w.point(t, 0.0);
+        let id = next_id(p, &[], "b");
+        let mut c = Cabinet {
+            id,
+            name: name.into(),
+            kind,
+            width,
+            height: BASE_HEIGHT,
+            depth: BASE_DEPTH,
+            x: (x * 10.0).round() / 10.0,
+            z: (z * 10.0).round() / 10.0,
+            rotation: (w.rotation * 1000.0).round() / 1000.0,
+            door_style: style,
+            ..Cabinet::default()
+        };
+        match name {
+            "Sink base" => {
+                c.cutout = CutoutKind::Sink;
+                c.doors = 2;
+                c.drawers = vec![];
+                c.shelves = 0;
+            }
+            "Hob base" => {
+                c.cutout = CutoutKind::Hob;
+                c.doors = 0;
+                c.drawers = vec![180.0, 300.0, 290.0];
+                c.shelves = 0;
+            }
+            _ => {
+                c.doors = 0;
+                c.drawers = vec![];
+                c.shelves = 0;
+            }
+        }
+        p.cabinets.push(c);
+    };
+    let (sink_w, dw_w, hob_w, edge) = (800.0, 600.0, 600.0, WALL_FILLER);
+    // a project that already has a sink, dishwasher or hob keeps them
+    let has = |f: &dyn Fn(&Cabinet) -> bool| project.cabinets.iter().any(f);
+    let (want_sink, want_hob) =
+        (!has(&|c| c.cutout == CutoutKind::Sink || c.kind == CabinetKind::Dishwasher), !has(&|c| c.cutout == CutoutKind::Hob));
+    if !want_sink {
+    } else if let Some(&(a, b)) =
+        base_spans(&p, sink_wall).iter().find(|(a, b)| target > *a - 1.0 && target < *b + 1.0 && b - a >= sink_w + dw_w + 2.0 * edge)
+    {
+        let lo = a + if a < 1.0 { edge } else { 0.0 };
+        let hi = b - if b > p.room.wall(sink_wall).unwrap().len - 1.0 { edge } else { 0.0 };
+        let t0 = ((target - sink_w / 2.0) / 10.0).round() * 10.0;
+        // dishwasher on the side with more room; keep both inside the span
+        let right = hi - (t0 + sink_w) >= t0 - lo;
+        let t0 = if right { t0.clamp(lo, hi - sink_w - dw_w) } else { t0.clamp(lo + dw_w, hi - sink_w) };
+        place(&mut p, sink_wall, t0, sink_w, CabinetKind::Base, "Sink base");
+        place(&mut p, sink_wall, if right { t0 + sink_w } else { t0 - dw_w }, dw_w, CabinetKind::Dishwasher, "Dishwasher");
+    }
+    // hob: the middle of the longest free stretch on another wall (opposite in a U), else this wall
+    let hob_walls: Vec<usize> = match kind {
+        Layout::U => vec![walls[2], walls[1], walls[0]],
+        Layout::L => vec![if sink_wall == walls[0] { walls[1] } else { walls[0] }, sink_wall],
+        Layout::Straight => vec![walls[0]],
+    };
+    for wi in hob_walls.into_iter().filter(|_| want_hob) {
+        let spans = base_spans(&p, wi);
+        if let Some(&(a, b)) = spans.iter().filter(|(a, b)| b - a >= hob_w + 2.0 * edge).max_by(|x, y| (x.1 - x.0).total_cmp(&(y.1 - y.0)))
+        {
+            let t = (((a + b) / 2.0 - hob_w / 2.0) / 10.0).round() * 10.0;
+            place(&mut p, wi, t.clamp(a + edge, b - edge - hob_w), hob_w, CabinetKind::Base, "Hob base");
+            break;
+        }
+    }
+    for &wi in &walls {
+        for tier in [Tier::Base, Tier::Wall] {
+            let made = fill_wall(&p, wi, tier)?;
+            p.cabinets.extend(made);
+        }
+    }
+    Ok(p.cabinets)
+}

@@ -1549,4 +1549,44 @@ mod tests {
         let files = export::files(&p, &r);
         assert!(files.iter().any(|(n, _)| n == "nc/face2/d1-worktop.nc"));
     }
+
+    #[test]
+    fn kitchen_layouts() {
+        let mut p = sample_kitchen();
+        p.cabinets.clear();
+        for (kind, walls) in [(room::Layout::Straight, 1), (room::Layout::L, 2), (room::Layout::U, 3)] {
+            let mut q = p.clone();
+            q.cabinets = room::layout(&q, kind, 0).unwrap();
+            let r = compute(&q);
+            assert!(r.build.warnings.is_empty(), "{kind:?}: {:?}", r.build.warnings);
+            let n = |f: &dyn Fn(&Cabinet) -> bool| q.cabinets.iter().filter(|c| f(c)).count();
+            assert_eq!(n(&|c| c.is_l()), 2 * (walls - 1), "{kind:?}: corners");
+            assert_eq!(n(&|c| c.cutout == CutoutKind::Sink), 1);
+            assert_eq!(n(&|c| c.cutout == CutoutKind::Hob), 1);
+            assert_eq!(
+                n(&|c| c.kind == CabinetKind::Dishwasher),
+                1,
+                "{kind:?}: {:?}",
+                q.cabinets.iter().map(|c| (c.id.clone(), c.name.clone(), c.width, c.x, c.z, c.rotation)).collect::<Vec<_>>()
+            );
+            // the sink sits under the window on wall 1
+            let sink = q.cabinets.iter().find(|c| c.cutout == CutoutKind::Sink).unwrap();
+            let w = &p.room.openings.iter().find(|o| o.kind == room::OpeningKind::Window).unwrap();
+            let mid = sink.x + sink.width / 2.0;
+            assert!((mid - (w.offset + w.width / 2.0)).abs() < 500.0, "{kind:?}: sink at {mid}");
+            // one worktop per wall
+            let tops = r.build.parts.iter().filter(|q| q.name == "Worktop").count();
+            assert_eq!(tops, walls, "{kind:?}");
+        }
+        // run on the sample: its own sink and hob stay the only ones, and no new warnings
+        let p = sample_kitchen();
+        let w0 = compute(&p).build.warnings.len();
+        let mut q = p.clone();
+        q.cabinets = room::layout(&q, room::Layout::U, 0).unwrap();
+        assert!(q.cabinets.len() > p.cabinets.len());
+        assert_eq!(q.cabinets.iter().filter(|c| c.cutout == CutoutKind::Sink).count(), 1);
+        assert_eq!(q.cabinets.iter().filter(|c| c.cutout == CutoutKind::Hob).count(), 1);
+        let r = compute(&q);
+        assert_eq!(r.build.warnings.len(), w0, "{:?}", r.build.warnings);
+    }
 }

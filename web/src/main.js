@@ -710,6 +710,15 @@ function renderWallPanel(put) {
     closeSheetOnPhone();
     recompute();
   };
+  const layout = (kind) => {
+    const before = project.cabinets.length;
+    try { project = JSON.parse(cw.layout(JSON.stringify(project), kind, i)); }
+    catch (e) { toast(String(e.message || e)); return; }
+    const n = project.cabinets.length - before;
+    toast(n ? `${n} added` : "No free space");
+    closeSheetOnPhone();
+    recompute();
+  };
   const lenInput = h("input", { type: "number", step: "any", value: Math.round(w.len), onchange: () => {
     const L = parseFloat(lenInput.value); if (!(L > 50)) return;
     const r = resizeWall(project.room, i, L, lenAnchor);
@@ -746,6 +755,11 @@ function renderWallPanel(put) {
       h("button", { class: "pri", onclick: () => fill("both") }, "Base + wall"),
       h("button", { onclick: () => fill("base") }, "Base"),
       h("button", { onclick: () => fill("wall") }, "Wall")),
+    h("h3", {}, "Kitchen"),
+    h("div", { class: "fill", id: "layout" },
+      h("button", { onclick: () => layout("straight") }, "Straight"),
+      h("button", { onclick: () => layout("l") }, "L"),
+      h("button", { onclick: () => layout("u") }, "U")),
     h("h3", {}, "Doors & windows"),
     ...ops.map(([o, k]) => h("div", { class: "mat" },
       h("div", { class: "row" },
@@ -1918,6 +1932,7 @@ async function main() {
     get project() { return JSON.parse(JSON.stringify(project)); },
     get selected() { return selected; },
     get view() { return view; },
+    selectWall(i) { selWall = i; selected = null; recompute(); },
     worldToScreen(x, y, z) {
       const r = renderer.domElement.getBoundingClientRect(), v = new THREE.Vector3(x, y, z).project(camera);
       return { x: r.left + ((v.x + 1) / 2) * r.width, y: r.top + ((1 - v.y) / 2) * r.height };

@@ -5,6 +5,7 @@
 //!   casework summary <project.json>
 //!   casework walls <project.json>
 //!   casework fill <project.json> <wall> [base|wall|both] [-o OUT.json]
+//!   casework layout <project.json> <straight|l|u> <wall> [-o OUT.json]
 //!   casework import-room <project.json> <plan.dxf>
 
 use casework_core as cw;
@@ -91,6 +92,27 @@ fn main() {
             fs::write(&out, serde_json::to_string_pretty(&p).unwrap()).unwrap_or_else(|e| die(e));
             println!("{} cabinets added -> {}", p.cabinets.len() - before, out.display());
         }
+        Some("layout") => {
+            use cw::room::{layout, Layout};
+            let path = args.get(1).unwrap_or_else(|| die("missing project.json"));
+            let kind = match args.get(2).map(|s| s.to_ascii_lowercase()).as_deref() {
+                Some("straight") => Layout::Straight,
+                Some("l") => Layout::L,
+                Some("u") => Layout::U,
+                _ => die("layout must be straight, l or u"),
+            };
+            let wall: usize = args.get(3).and_then(|s| s.parse().ok()).unwrap_or_else(|| die("missing wall number (see `casework walls`)"));
+            let out = match (args.get(4).map(String::as_str), args.get(5)) {
+                (Some("-o"), Some(f)) => PathBuf::from(f),
+                (None, _) => PathBuf::from(path),
+                _ => die("expected -o OUT.json"),
+            };
+            let mut p = load(path);
+            let before = p.cabinets.len();
+            p.cabinets = layout(&p, kind, wall).unwrap_or_else(|e| die(e));
+            fs::write(&out, serde_json::to_string_pretty(&p).unwrap()).unwrap_or_else(|e| die(e));
+            println!("{} cabinets added -> {}", p.cabinets.len() - before, out.display());
+        }
         Some("import-room") => {
             let path = args.get(1).unwrap_or_else(|| die("missing project.json"));
             let plan = args.get(2).unwrap_or_else(|| die("missing plan.dxf"));
@@ -135,7 +157,7 @@ fn main() {
             }
         }
         _ => {
-            eprintln!("usage:\n  casework sample > kitchen.json\n  casework export kitchen.json [-o DIR] [--zip FILE]\n  casework summary kitchen.json\n  casework walls kitchen.json\n  casework fill kitchen.json <wall> [base|wall|both] [-o OUT.json]\n  casework import-room kitchen.json plan.dxf");
+            eprintln!("usage:\n  casework sample > kitchen.json\n  casework export kitchen.json [-o DIR] [--zip FILE]\n  casework summary kitchen.json\n  casework walls kitchen.json\n  casework fill kitchen.json <wall> [base|wall|both] [-o OUT.json]\n  casework layout kitchen.json <straight|l|u> <wall> [-o OUT.json]\n  casework import-room kitchen.json plan.dxf");
             exit(2)
         }
     }

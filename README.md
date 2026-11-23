@@ -24,6 +24,8 @@ Every push builds `casework` for Windows and Linux: Actions → latest run → A
 
 **Room.** *Draw room* (top of the left panel; switches to Plan) and click the inside corners (snaps to a 10 mm grid and 45° directions; Backspace removes the last corner); click the first corner, double-click, or press Enter to finish. *Rectangle* starts from a box. Drag the square handles to move corners. Click a wall's length label (or the wall) to select it: set its length — *Fixed* picks what stays put: its start corner, its centre, or its end corner (shown filled in Plan); the neighbouring walls slide along keeping their directions, so a rectangle stays a rectangle, and doors and windows on the wall keep their distance from the fixed point, and cabinets follow: those on a wall that slides move with it, and a run that starts at a corner that moved slides with that corner (a run filling the wall corner to corner stays). Dragging a corner does the same for walls that keep their direction — add doors and windows, or **fill it with cabinets** (base, wall, or both). Filling packs standard widths (1000, 900, 800, 600, 500, 450, 400, 300), keeps clear of doors, windows, corners and cabinets already there, and closes gaps against walls or cabinets with a filler (gaps beside doors and windows stay open). The same layout runs from the CLI (`casework fill`).
 
+**Kitchen layouts.** With a wall selected, *Kitchen* → *Straight*, *L* or *U* lays out a kitchen starting from that wall (and the next one or two, going round the room): L corners (base and wall) in the inside corners that are clear, an 800 sink base under the window (else mid-wall) with a dishwasher beside it on the roomier side, a 600 hob base with drawers in the middle of the longest free stretch on another wall (the far wall in a U), then the walls filled as above. A project that already has a sink or hob keeps it and gets no second one; cabinets already there are worked round. `casework layout kitchen.json u 0` does the same.
+
 **Columns, boxing, radiators.** Added on a wall like doors and windows (position, width, depth out from the wall, height, and height from the floor for radiators). Filling keeps clear of them at their heights, cabinets that run into one get a warning, and they show in 3D, the plan and the wall elevations.
 
 **DXF floor plan.** *DXF plan* (or `casework import-room`) reads LINE, LWPOLYLINE and POLYLINE outlines (arcs, text and dimensions are ignored), joins lines into closed loops, and takes the largest — or, when walls are drawn with both faces, the inside face. Units come from `$INSUNITS`, else are guessed from the size (m / cm / mm). Doors and windows are added afterwards on the walls.
@@ -81,6 +83,7 @@ casework sample > kitchen.json
 casework summary kitchen.json
 casework walls kitchen.json                       # list walls with lengths and rotations
 casework fill kitchen.json 2 both                 # fill wall 2 with base + wall cabinets (base | wall | both)
+casework layout kitchen.json u 0                  # U-shaped kitchen from wall 0 (straight | l | u)
 casework import-room kitchen.json plan.dxf         # room outline from a DXF floor plan
 casework export kitchen.json -o out/          # folder of files
 casework export kitchen.json --zip kitchen.zip

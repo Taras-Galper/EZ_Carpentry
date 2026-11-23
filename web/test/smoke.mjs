@@ -107,6 +107,21 @@ for (const engine of ["wasm", "js"]) {
   await page.close();
 }
 
+// Kitchen layout: U on wall 1 of the sample room places sink, dishwasher and hob
+{
+  const page = await browser.newPage({ viewport: { width: 1500, height: 900 } });
+  await page.goto(url);
+  await page.waitForFunction(() => window.ezCarpentry?.project);
+  const walls = await page.evaluate(() => window.ezCarpentry.project.room.walls.length);
+  if (walls >= 4) {
+    await page.evaluate(() => window.ezCarpentry.selectWall(0));
+    await page.click("#layout >> text=U"); await page.waitForTimeout(300);
+    const k = await page.evaluate(() => window.ezCarpentry.project.cabinets.map((c) => c.cutout + "/" + c.kind));
+    check(k.some((s) => s.startsWith("sink")) && k.some((s) => s.startsWith("hob")) && k.some((s) => s.endsWith("dishwasher")), `U layout ${k.length} cabinets`);
+  } else console.log("skip layout check: sample has no room");
+  await page.close();
+}
+
 const phone = await browser.newContext({ ...pw.devices["iPhone 13"] });
 const pp = await phone.newPage();
 await pp.goto(url);
